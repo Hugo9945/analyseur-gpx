@@ -17,54 +17,84 @@
 <aside id="panel">
   <header>
     <h1>Analyseur de traces GPX</h1>
-    <p class="sub">Types de voie (BD TOPO) et foncier (cadastre IGN + fichier DGFiP des personnes morales)</p>
+    <p class="sub">Moto enduro et trail : accès, type de voie, revêtement, pentes, zones protégées et foncier traversé</p>
   </header>
 
   <label id="drop" for="file">
-    <input type="file" id="file">
-    <strong>Dépose un fichier .gpx</strong>
-    <span>ou clique pour le choisir</span>
+    <input type="file" id="file" multiple>
+    <strong>Dépose un ou plusieurs fichiers .gpx</strong>
+    <span>ou clique pour les choisir</span>
   </label>
-  <p class="privacy">Rien n'est conservé : la trace est analysée dans ton navigateur, jamais enregistrée ni envoyée à un serveur du site, et elle disparaît quand tu cliques sur « Effacer » ou fermes la page.</p>
+  <p class="privacy">Rien n'est conservé : les traces sont analysées dans ton navigateur, jamais enregistrées ni envoyées à un serveur du site, et elles disparaissent quand tu cliques sur « Effacer » ou fermes la page.</p>
 
   <div id="status" hidden></div>
+
+  <section id="traces" hidden>
+    <h2>Traces</h2>
+    <div id="trace-list" class="chips"></div>
+    <div class="scroll-x">
+      <table id="compare" class="compare" hidden><thead></thead><tbody></tbody></table>
+    </div>
+  </section>
 
   <section id="results" hidden>
     <div class="tiles">
       <div class="tile"><span class="k">Distance</span><span class="v" id="t-dist"></span></div>
       <div class="tile"><span class="k">D+ / D−</span><span class="v" id="t-elev"></span></div>
-      <div class="tile"><span class="k">Parcelles traversées</span><span class="v" id="t-parc"></span></div>
+      <div class="tile"><span class="k">Pente max</span><span class="v" id="t-slope"></span></div>
+      <div class="tile"><span class="k">Points d'attention</span><span class="v" id="t-alert"></span></div>
     </div>
+    <div id="notes"></div>
+
+    <h2>Accès moto</h2>
+    <table class="cats" id="tab-moto"></table>
+    <p class="note">Un même tronçon peut cumuler plusieurs motifs.</p>
+
+    <h2>Points d'attention moto <span class="count" id="n-alert"></span></h2>
+    <p class="note">Tronçons d'au moins 20 m avec au moins un motif. Clique sur une ligne pour la voir sur la carte.</p>
+    <table class="verif" id="tab-alert"></table>
+
+    <h2>Profil et pentes</h2>
+    <div id="profile" class="profile"><div id="profile-tip" class="tip" hidden></div></div>
+    <div class="bar" id="bar-slope"></div>
+    <table class="cats" id="tab-slope"></table>
+    <p class="note" id="note-slope"></p>
 
     <h2>Type de voie</h2>
     <div class="bar" id="bar-voie"></div>
     <table class="cats" id="tab-voie"></table>
     <details><summary>Détail par nature BD TOPO</summary><table class="cats" id="tab-nature"></table></details>
-    <p class="note" id="note-prive"></p>
+
+    <h2>Revêtement</h2>
+    <div class="bar" id="bar-surf"></div>
+    <table class="cats" id="tab-surf"></table>
+    <p class="note" id="note-surf"></p>
+
+    <h2>Zones réglementées</h2>
+    <table class="verif" id="tab-zones"></table>
 
     <h2>Foncier</h2>
     <div class="bar" id="bar-fonc"></div>
     <table class="cats" id="tab-fonc"></table>
     <p class="note" id="note-foret"></p>
 
-    <h2>Passages à vérifier <span class="count" id="n-verif"></span></h2>
-    <p class="note">Tronçons d'au moins 20 m à l'intérieur d'une parcelle (à plus de 4 m de sa limite) appartenant à un particulier ou à une personne morale privée. Clique sur une ligne pour la voir sur la carte.</p>
-    <table class="verif" id="tab-verif"></table>
-
     <div class="actions">
-      <button id="csv-verif">Exporter les passages (CSV)</button>
+      <button id="csv-alert">Exporter les points d'attention (CSV)</button>
       <button id="csv-parc">Exporter les parcelles (CSV)</button>
-      <button id="clear">Effacer la trace</button>
+      <button id="clear">Effacer cette trace</button>
+      <button id="clear-all">Tout effacer</button>
     </div>
 
-    <p class="disclaimer">Indicateur, pas un avis juridique. Le nom des propriétaires particuliers n'est pas public : une parcelle absente du fichier des personnes morales est classée « particulier (probable) ». Un chemin rural appartient à la commune même s'il est cadastré à part ; un chemin d'exploitation peut être privé. Une trace décalée de quelques mètres peut toucher une parcelle voisine.</p>
+    <p class="disclaimer">Indicateur, pas un avis juridique. Les véhicules à moteur sont interdits hors des voies ouvertes à la circulation publique (art. L362-1 du code de l'environnement) ; un maire ou un préfet peut aussi fermer un chemin rural par arrêté, ce qu'aucune base ne recense : vérifier la signalisation sur place. Le nom des propriétaires particuliers n'est pas public : une parcelle absente du fichier des personnes morales est classée « particulier (probable) ». Le revêtement vient d'OpenStreetMap, souvent incomplet sur les chemins.</p>
   </section>
 </aside>
 
 <main>
   <div id="map"></div>
   <div class="mapctl" role="group" aria-label="Couleur de la trace">
-    <button data-mode="voie" class="on">Type de voie</button>
+    <button data-mode="moto" class="on">Moto</button>
+    <button data-mode="voie">Voie</button>
+    <button data-mode="surf">Revêtement</button>
     <button data-mode="fonc">Foncier</button>
   </div>
 </main>

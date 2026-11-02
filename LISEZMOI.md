@@ -1,11 +1,15 @@
 # Analyseur de traces GPX
 
-Glisse une trace `.gpx`, obtiens :
-- la répartition par type de voie (route revêtue, empierrée, chemin, sentier…) d'après la BD TOPO IGN ;
-- le foncier traversé (non cadastré, personne publique, personne morale privée, particulier probable) d'après le cadastre IGN et le fichier DGFiP des parcelles des personnes morales ;
-- la liste des passages à vérifier en terrain privé, et des exports CSV.
+Pensé pour la moto enduro et trail. Glisse une ou plusieurs traces `.gpx`, obtiens :
+- l'accès moto : parcelles privées, accès réservés aux ayants droit (BD TOPO), interdictions OpenStreetMap (`motorcycle`, `motor_vehicle`, `access`, sentiers), sentiers non carrossables, zones protégées strictes ;
+- la liste des points d'attention, cliquables sur la carte ;
+- le profil d'altitude (RGE ALTI IGN) coloré par type de voie, et la répartition des pentes ;
+- le type de voie (BD TOPO) et le revêtement (OpenStreetMap, sinon déduit de la BD TOPO) ;
+- les zones réglementées traversées (cœurs de parcs nationaux, réserves, arrêtés de biotope, Natura 2000, PNR) ;
+- le foncier traversé (cadastre IGN + fichier DGFiP des personnes morales) ;
+- un tableau comparatif quand plusieurs traces sont chargées, et des exports CSV.
 
-Tout tourne dans le navigateur : la trace n'est envoyée nulle part. Seules les données IGN (routes, cadastre, forêts publiques) sont chargées en direct depuis la Géoplateforme.
+Tout tourne dans le navigateur : la trace n'est envoyée nulle part. Les données IGN (Géoplateforme) et OpenStreetMap (Overpass) sont chargées en direct ; OpenStreetMap peut mettre une à deux minutes, ses résultats s'ajoutent alors automatiquement.
 
 ## Contenu
 
