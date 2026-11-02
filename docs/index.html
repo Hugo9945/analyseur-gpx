@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Analyseur de traces GPX</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Analyse GPX">
+<meta name="theme-color" content="#2a78d6">
+</head>
+<body>
+<aside id="panel">
+  <header>
+    <h1>Analyseur de traces GPX</h1>
+    <p class="sub">Types de voie (BD TOPO) et foncier (cadastre IGN + fichier DGFiP des personnes morales)</p>
+  </header>
+
+  <label id="drop" for="file">
+    <input type="file" id="file">
+    <strong>Dépose un fichier .gpx</strong>
+    <span>ou clique pour le choisir</span>
+  </label>
+  <p class="privacy">Rien n'est conservé : la trace est analysée dans ton navigateur, jamais enregistrée ni envoyée à un serveur du site, et elle disparaît quand tu cliques sur « Effacer » ou fermes la page.</p>
+
+  <div id="status" hidden></div>
+
+  <section id="results" hidden>
+    <div class="tiles">
+      <div class="tile"><span class="k">Distance</span><span class="v" id="t-dist"></span></div>
+      <div class="tile"><span class="k">D+ / D−</span><span class="v" id="t-elev"></span></div>
+      <div class="tile"><span class="k">Parcelles traversées</span><span class="v" id="t-parc"></span></div>
+    </div>
+
+    <h2>Type de voie</h2>
+    <div class="bar" id="bar-voie"></div>
+    <table class="cats" id="tab-voie"></table>
+    <details><summary>Détail par nature BD TOPO</summary><table class="cats" id="tab-nature"></table></details>
+    <p class="note" id="note-prive"></p>
+
+    <h2>Foncier</h2>
+    <div class="bar" id="bar-fonc"></div>
+    <table class="cats" id="tab-fonc"></table>
+    <p class="note" id="note-foret"></p>
+
+    <h2>Passages à vérifier <span class="count" id="n-verif"></span></h2>
+    <p class="note">Tronçons d'au moins 20 m à l'intérieur d'une parcelle (à plus de 4 m de sa limite) appartenant à un particulier ou à une personne morale privée. Clique sur une ligne pour la voir sur la carte.</p>
+    <table class="verif" id="tab-verif"></table>
+
+    <div class="actions">
+      <button id="csv-verif">Exporter les passages (CSV)</button>
+      <button id="csv-parc">Exporter les parcelles (CSV)</button>
+      <button id="clear">Effacer la trace</button>
+    </div>
+
+    <p class="disclaimer">Indicateur, pas un avis juridique. Le nom des propriétaires particuliers n'est pas public : une parcelle absente du fichier des personnes morales est classée « particulier (probable) ». Un chemin rural appartient à la commune même s'il est cadastré à part ; un chemin d'exploitation peut être privé. Une trace décalée de quelques mètres peut toucher une parcelle voisine.</p>
+  </section>
+</aside>
+
+<main>
+  <div id="map"></div>
+  <div class="mapctl" role="group" aria-label="Couleur de la trace">
+    <button data-mode="voie" class="on">Type de voie</button>
+    <button data-mode="fonc">Foncier</button>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.1.0/turf.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

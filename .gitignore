@@ -1,0 +1,6 @@
+# traces personnelles : jamais publiées
+exemples/
+*.gpx
+.venv/
+.claude/
+.DS_Store
