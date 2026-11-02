@@ -12,20 +12,20 @@ const EDGE_TOL = 4;       // m : en deçà, un point privé est « en limite de 
 const SLOPE_WIN = 25;     // m de part et d'autre pour calculer la pente
 
 const VOIE = [
-  { key: "revetue",   label: "Route revêtue",      color: "--s1" },
-  { key: "empierree", label: "Route empierrée",    color: "--s2" },
-  { key: "chemin",    label: "Chemin",             color: "--s3" },
-  { key: "sentier",   label: "Sentier / escalier", color: "--s4" },
-  { key: "cyclable",  label: "Piste cyclable",     color: "--s5" },
-  { key: "hors",      label: "Hors réseau IGN",    color: "--neutral" },
+  { key: "revetue",   label: "Route revêtue",      short: "route", color: "--s1" },
+  { key: "empierree", label: "Route empierrée",    short: "empierré", color: "--s2" },
+  { key: "chemin",    label: "Chemin",             short: "chemin", color: "--s3" },
+  { key: "sentier",   label: "Sentier / escalier", short: "sentier", color: "--s4" },
+  { key: "cyclable",  label: "Piste cyclable",     short: "piste cyclable", color: "--s5" },
+  { key: "hors",      label: "Hors réseau IGN",    short: "hors réseau", color: "--neutral" },
 ];
 const SURF = [
-  { key: "asphalte", label: "Asphalte / béton",           color: "--s1" },
-  { key: "gravier",  label: "Gravier / stabilisé",        color: "--s2" },
-  { key: "terre",    label: "Terre / herbe / sable",      color: "--s3" },
-  { key: "cailloux", label: "Rocheux / cailloux",         color: "--s4" },
-  { key: "nonrev",   label: "Non revêtu, non précisé",    color: "--s5" },
-  { key: "inconnu",  label: "Inconnu",                    color: "--neutral" },
+  { key: "asphalte", label: "Asphalte / béton",           short: "asphalte", color: "--s1" },
+  { key: "gravier",  label: "Gravier / stabilisé",        short: "gravier", color: "--s2" },
+  { key: "terre",    label: "Terre / herbe / sable",      short: "terre", color: "--s3" },
+  { key: "cailloux", label: "Rocheux / cailloux",         short: "rocheux", color: "--s4" },
+  { key: "nonrev",   label: "Non revêtu, non précisé",    short: "non précisé", color: "--s5" },
+  { key: "inconnu",  label: "Inconnu",                    short: "inconnu", color: "--neutral" },
 ];
 const FONC = [
   { key: "public",      label: "Personne publique (commune, État…)",   color: "--s1" },
@@ -861,6 +861,19 @@ function render(res) {
   const foret = sumIf(samples, (s) => s.forest);
   $("note-foret").textContent = foret ? `${fmtKm(foret)} (${pct(foret, total)}) en forêt publique (ONF) : les routes forestières y sont souvent fermées aux véhicules.` : "Aucun passage en forêt publique.";
 
+  // résumés affichés sur les menus fermés
+  const top2 = (cats, sums) => [...sums].filter(([, v]) => v).sort((a, b) => b[1] - a[1]).slice(0, 2)
+    .map(([k, v]) => `${fmtPct((100 * v) / total)} ${cats.find((c) => c.key === k).short}`).join(" · ");
+  const nA = res.alerts.length;
+  $("s-moto").textContent = (nA ? `${nA} point${nA > 1 ? "s" : ""} d'attention` : "aucun point d'attention") +
+    (res.osm === "pending" ? " · OSM en cours…" : "");
+  $("s-surf").textContent = (res.osm === "pending" ? "provisoire · " : "") + top2(SURF, sumBy(samples, (s) => s.surf));
+  $("s-profile").textContent = elev ? `D+ ${Math.round(elev.up)} m${elev.max ? ` · max ${Math.round(Math.abs(elev.max.grade))} %` : ""}` : "altitudes indisponibles";
+  $("s-voie").textContent = top2(VOIE, sumBy(samples, (s) => s.voie));
+  const strong = zs.filter((e) => e.z.strong).length, soft = zs.length - strong;
+  $("s-zones").textContent = zs.length ? [strong && `${strong} stricte${strong > 1 ? "s" : ""}`, soft && `${soft} à surveiller`].filter(Boolean).join(" · ") : "aucune";
+  $("s-fonc").textContent = `${fmtPct(res.sum.prive)} en terrain privé`;
+
   $("results").hidden = false;
 }
 
@@ -960,6 +973,8 @@ $("file").addEventListener("change", (e) => e.target.files.length && analyseFile
 ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
 drop.addEventListener("drop", (e) => e.dataTransfer.files.length && analyseFiles(e.dataTransfer.files));
 window.addEventListener("resize", () => active && drawProfile(active.res));
+// le profil se dessine à la largeur réelle quand on ouvre son menu
+$("sec-profile").addEventListener("toggle", (e) => e.target.open && active && drawProfile(active.res));
 // permet de tester sans glisser-déposer : ?gpx=/chemin/servi/fichier.gpx
 const q = new URLSearchParams(location.search).get("gpx");
 if (q) fetch(q).then((r) => r.blob()).then((b) => analyseFiles([new File([b], q.split("/").pop())]));

@@ -46,46 +46,63 @@
     </div>
     <div id="notes"></div>
 
-    <h2>Accès moto</h2>
-    <table class="cats" id="tab-moto"></table>
-    <p class="note">Un même tronçon peut cumuler plusieurs motifs.</p>
+    <details class="sec" id="sec-moto">
+      <summary><span class="t">Accès moto</span><span class="s" id="s-moto"></span></summary>
+      <table class="cats" id="tab-moto"></table>
+      <p class="note">Un même tronçon peut cumuler plusieurs motifs.</p>
+      <h3>Points d'attention <span class="count" id="n-alert"></span></h3>
+      <p class="note">Tronçons d'au moins 20 m avec au moins un motif. Clique sur une ligne pour la voir sur la carte.</p>
+      <table class="verif" id="tab-alert"></table>
+    </details>
 
-    <h2>Points d'attention moto <span class="count" id="n-alert"></span></h2>
-    <p class="note">Tronçons d'au moins 20 m avec au moins un motif. Clique sur une ligne pour la voir sur la carte.</p>
-    <table class="verif" id="tab-alert"></table>
+    <details class="sec" id="sec-surf">
+      <summary><span class="t">Revêtement</span><span class="s" id="s-surf"></span></summary>
+      <div class="bar" id="bar-surf"></div>
+      <table class="cats" id="tab-surf"></table>
+      <p class="note" id="note-surf"></p>
+    </details>
 
-    <h2>Profil et pentes</h2>
-    <div id="profile" class="profile"><div id="profile-tip" class="tip" hidden></div></div>
-    <div class="bar" id="bar-slope"></div>
-    <table class="cats" id="tab-slope"></table>
-    <p class="note" id="note-slope"></p>
+    <details class="sec" id="sec-profile">
+      <summary><span class="t">Profil et pentes</span><span class="s" id="s-profile"></span></summary>
+      <div id="profile" class="profile"><div id="profile-tip" class="tip" hidden></div></div>
+      <div class="bar" id="bar-slope"></div>
+      <table class="cats" id="tab-slope"></table>
+      <p class="note" id="note-slope"></p>
+    </details>
 
-    <h2>Type de voie</h2>
-    <div class="bar" id="bar-voie"></div>
-    <table class="cats" id="tab-voie"></table>
-    <details><summary>Détail par nature BD TOPO</summary><table class="cats" id="tab-nature"></table></details>
+    <details class="sec" id="sec-voie">
+      <summary><span class="t">Type de voie</span><span class="s" id="s-voie"></span></summary>
+      <div class="bar" id="bar-voie"></div>
+      <table class="cats" id="tab-voie"></table>
+      <details><summary>Détail par nature BD TOPO</summary><table class="cats" id="tab-nature"></table></details>
+    </details>
 
-    <h2>Revêtement</h2>
-    <div class="bar" id="bar-surf"></div>
-    <table class="cats" id="tab-surf"></table>
-    <p class="note" id="note-surf"></p>
+    <details class="sec" id="sec-zones">
+      <summary><span class="t">Zones réglementées</span><span class="s" id="s-zones"></span></summary>
+      <table class="verif" id="tab-zones"></table>
+    </details>
 
-    <h2>Zones réglementées</h2>
-    <table class="verif" id="tab-zones"></table>
+    <details class="sec" id="sec-fonc">
+      <summary><span class="t">Foncier</span><span class="s" id="s-fonc"></span></summary>
+      <div class="bar" id="bar-fonc"></div>
+      <table class="cats" id="tab-fonc"></table>
+      <p class="note" id="note-foret"></p>
+    </details>
 
-    <h2>Foncier</h2>
-    <div class="bar" id="bar-fonc"></div>
-    <table class="cats" id="tab-fonc"></table>
-    <p class="note" id="note-foret"></p>
+    <details class="sec">
+      <summary><span class="t">Exports et effacement</span></summary>
+      <div class="actions">
+        <button id="csv-alert">Exporter les points d'attention (CSV)</button>
+        <button id="csv-parc">Exporter les parcelles (CSV)</button>
+        <button id="clear">Effacer cette trace</button>
+        <button id="clear-all">Tout effacer</button>
+      </div>
+    </details>
 
-    <div class="actions">
-      <button id="csv-alert">Exporter les points d'attention (CSV)</button>
-      <button id="csv-parc">Exporter les parcelles (CSV)</button>
-      <button id="clear">Effacer cette trace</button>
-      <button id="clear-all">Tout effacer</button>
-    </div>
-
-    <p class="disclaimer">Indicateur, pas un avis juridique. Les véhicules à moteur sont interdits hors des voies ouvertes à la circulation publique (art. L362-1 du code de l'environnement) ; un maire ou un préfet peut aussi fermer un chemin rural par arrêté, ce qu'aucune base ne recense : vérifier la signalisation sur place. Le nom des propriétaires particuliers n'est pas public : une parcelle absente du fichier des personnes morales est classée « particulier (probable) ». Le revêtement vient d'OpenStreetMap, souvent incomplet sur les chemins.</p>
+    <details class="sec">
+      <summary><span class="t">À savoir</span></summary>
+      <p class="disclaimer">Indicateur, pas un avis juridique. Les véhicules à moteur sont interdits hors des voies ouvertes à la circulation publique (art. L362-1 du code de l'environnement) ; un maire ou un préfet peut aussi fermer un chemin rural par arrêté, ce qu'aucune base ne recense : vérifier la signalisation sur place. Le nom des propriétaires particuliers n'est pas public : une parcelle absente du fichier des personnes morales est classée « particulier (probable) ». Le revêtement vient d'OpenStreetMap, souvent incomplet sur les chemins.</p>
+    </details>
   </section>
 </aside>
 
@@ -93,8 +110,8 @@
   <div id="map"></div>
   <div class="mapctl" role="group" aria-label="Couleur de la trace">
     <button data-mode="moto" class="on">Moto</button>
-    <button data-mode="voie">Voie</button>
     <button data-mode="surf">Revêtement</button>
+    <button data-mode="voie">Voie</button>
     <button data-mode="fonc">Foncier</button>
   </div>
 </main>
