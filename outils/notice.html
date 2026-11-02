@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Notice — Analyseur de traces GPX</title>
+<style>
+  @page { size: A4; margin: 13mm 15mm 11mm; }
+  * { box-sizing: border-box; }
+  body { font: 9.4pt/1.38 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; color: #0b0b0b; margin: 0; }
+  header { border-bottom: 3px solid #2a78d6; padding-bottom: 8px; margin-bottom: 12px; }
+  h1 { font-size: 20pt; margin: 0 0 2px; letter-spacing: -.01em; }
+  .sub { color: #52514e; margin: 0; }
+  .url { display: inline-block; margin-top: 6px; font-weight: 600; color: #2a78d6; text-decoration: none; }
+  h2 { font-size: 11.5pt; margin: 11px 0 4px; display: flex; align-items: center; gap: 8px; break-after: avoid; }
+  h2 .n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #2a78d6; color: #fff; font-size: 9.5pt; flex: none; }
+  p { margin: 0 0 6px; }
+  ol, ul { margin: 0 0 6px; padding-left: 18px; }
+  li { margin-bottom: 2px; }
+  section { break-inside: avoid; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 22px; }
+  table { width: 100%; border-collapse: collapse; margin: 2px 0 6px; font-size: 9.5pt; }
+  td { padding: 4px 6px; border-bottom: 1px solid #dddcd6; vertical-align: top; }
+  td:first-child { font-weight: 600; white-space: nowrap; width: 1%; }
+  .sw { display: inline-block; width: 18px; height: 5px; border-radius: 3px; vertical-align: middle; margin-right: 6px; }
+  .box { background: #f4f4f1; border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
+  .warn { border-left: 3px solid #e34948; }
+  .k { display: inline-block; border: 1px solid #b9b8b1; border-radius: 4px; padding: 0 5px; font-size: 9pt; background: #fff; white-space: nowrap; }
+  .muted { color: #52514e; }
+  footer { margin-top: 12px; padding-top: 6px; border-top: 1px solid #dddcd6; color: #7a7974; font-size: 8.5pt; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Analyseur de traces GPX</h1>
+  <p class="sub">Notice rapide · moto enduro et trail : est-ce que j'ai le droit de passer là ?</p>
+  <a class="url" href="https://hugo9945.github.io/analyseur-gpx/">hugo9945.github.io/analyseur-gpx</a>
+</header>
+
+<div class="cols">
+<div>
+<section>
+  <h2><span class="n">1</span>Installer sur iPad / iPhone</h2>
+  <ol>
+    <li>Ouvre le lien dans <b>Safari</b>.</li>
+    <li>Touche <span class="k">Partager</span> puis <span class="k">Sur l'écran d'accueil</span>.</li>
+    <li>L'icône « Analyse GPX » s'ouvre ensuite en plein écran, comme une app.</li>
+  </ol>
+  <p class="muted">Sur ordinateur : il suffit d'ouvrir le lien. Il faut une connexion internet.</p>
+</section>
+
+<section>
+  <h2><span class="n">2</span>Analyser une trace</h2>
+  <ol>
+    <li>Dépose un ou plusieurs fichiers <b>.gpx</b> dans le cadre (ou touche-le pour les choisir).</li>
+    <li>Les données IGN arrivent en <b>20 à 60 s</b> : la trace s'affiche, colorée.</li>
+    <li>OpenStreetMap (revêtement, interdictions moto) arrive ensuite, parfois en plusieurs minutes. Tant qu'il manque, le revêtement est marqué <b>«&nbsp;provisoire&nbsp;»</b> ; tout se met à jour seul.</li>
+  </ol>
+  <p>Avec plusieurs traces, un tableau les <b>compare</b> ; touche un nom pour basculer.</p>
+</section>
+
+<section>
+  <h2><span class="n">3</span>Lire les résultats</h2>
+  <p>En haut : distance, D+ / D−, pente max, nombre de <b>points d'attention</b>. Dessous, des menus à déplier :</p>
+  <table>
+    <tr><td>Accès moto</td><td>Ce qui pose problème, et la liste des points d'attention. Touche une ligne pour la voir sur la carte.</td></tr>
+    <tr><td>Revêtement</td><td>Asphalte, gravier, terre, rocheux…</td></tr>
+    <tr><td>Profil et pentes</td><td>Profil d'altitude ; glisse le doigt dessus, un curseur suit sur la carte.</td></tr>
+    <tr><td>Type de voie</td><td>Route, chemin, sentier (BD TOPO IGN).</td></tr>
+    <tr><td>Zones</td><td>Parcs nationaux, réserves, biotopes, Natura 2000.</td></tr>
+    <tr><td>Foncier</td><td>Public, privé, non cadastré, forêt publique.</td></tr>
+    <tr><td>Exports</td><td>CSV des points d'attention et des parcelles ; boutons Effacer.</td></tr>
+  </table>
+</section>
+</div>
+
+<div>
+<section>
+  <h2><span class="n">4</span>La carte</h2>
+  <p>Les boutons en haut à droite changent la couleur de la trace :</p>
+  <table>
+    <tr><td>Moto</td><td><span class="sw" style="background:#1baf7a"></span>aucune restriction connue<br><span class="sw" style="background:#e34948"></span>point d'attention</td></tr>
+    <tr><td>Revêtement</td><td>une couleur par type de sol</td></tr>
+    <tr><td>Voie</td><td>route, chemin, sentier…</td></tr>
+    <tr><td>Foncier</td><td>parcelles traversées, colorées par propriétaire</td></tr>
+  </table>
+  <p>Touche la trace ou une parcelle pour le détail (nature de la voie, tags OSM, propriétaire). En bas à droite : plan IGN, photo aérienne, cadastre.</p>
+</section>
+
+<section>
+  <h2><span class="n">5</span>Isoler une section</h2>
+  <ol>
+    <li>Touche <span class="k">Isoler une section</span> en haut des résultats.</li>
+    <li>Touche le <b>départ</b> sur la trace (repère A), puis l'<b>arrivée</b> (repère B).</li>
+    <li>Tous les chiffres et menus ne portent plus que sur ce bout.</li>
+  </ol>
+  <p><span class="k">Autre section</span> pour recommencer, <span class="k">Trace entière</span> pour revenir. Les km affichés restent ceux de la trace complète.</p>
+</section>
+
+<section>
+  <h2><span class="n">6</span>Si OpenStreetMap ne répond pas</h2>
+  <p>Son serveur gratuit est souvent saturé. L'app essaie 4 serveurs, deux fois. Si le message rouge apparaît quand même, touche <span class="k">Réessayer</span> : seule la partie OSM est relancée.</p>
+</section>
+
+<section>
+  <h2><span class="n">7</span>Confidentialité</h2>
+  <p>Rien n'est enregistré : la trace est analysée dans ton navigateur et disparaît avec <span class="k">Effacer</span> ou en fermant la page.</p>
+</section>
+</div>
+</div>
+
+<section class="box warn">
+  <b>À garder en tête.</b> C'est un indicateur, pas un avis juridique. Les véhicules à moteur sont interdits hors des voies ouvertes à la circulation publique (art. L362-1 du code de l'environnement). Un maire ou un préfet peut fermer un chemin par arrêté sans que ce soit dans aucune base : <b>la signalisation sur place prime</b>. « Particulier » veut dire « probable » (les noms des particuliers ne sont pas publics), et OSM est souvent incomplet sur les chemins.
+</section>
+
+<footer>Sources : IGN Géoplateforme (BD TOPO, cadastre, RGE ALTI, zones PatriNat), DGFiP (parcelles des personnes morales), © contributeurs OpenStreetMap.</footer>
+</body>
+</html>

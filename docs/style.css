@@ -157,3 +157,9 @@ h3 { font-size: 13px; margin: 16px 0 6px; color: var(--text-secondary); }
 .pin { display: grid; place-items: center; border-radius: 50%; background: var(--text-primary); color: var(--surface-1);
   border: 2px solid #fff; font: 600 12px/1 system-ui, sans-serif; box-shadow: 0 1px 3px #0005; }
 #osm-retry { margin-left: 6px; padding: 2px 10px; font-size: 12px; }
+
+/* Lien vers la notice PDF */
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.btn { flex: none; display: inline-block; padding: 5px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1);
+  color: var(--text-primary); font-size: 13px; text-decoration: none; }
+.btn:hover { border-color: var(--accent); }

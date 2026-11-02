@@ -49,3 +49,11 @@ python3 -m venv .venv && .venv/bin/pip install duckdb
 ```
 
 Remplacer l'URL du fichier dans le script par celle du nouveau millésime sur data.gouv.fr (« Fichiers des locaux et des parcelles des personnes morales (version unifiée) »), puis `git push`.
+
+## Notice
+
+La notice d'une page (`docs/notice.pdf`, bouton « Notice » du site) se régénère depuis `outils/notice.html` :
+
+```
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --no-pdf-header-footer --print-to-pdf=docs/notice.pdf "file://$PWD/outils/notice.html"
+```
