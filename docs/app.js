@@ -3,7 +3,10 @@
 // ---------- Paramètres ----------
 const WFS = "https://data.geopf.fr/wfs/ows";
 const ALTI = "https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest/elevation.json";
-const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
+// serveurs Overpass, essayés dans l'ordre (le principal est souvent saturé : files d'attente de plus d'une minute)
+const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"];
+const OSM_ROUNDS = 2;     // tours complets des serveurs avant d'abandonner
 const STEP = 10;          // m entre deux points d'échantillonnage
 const ROAD_TOL = 15;      // m : distance max pour rattacher un point à un tronçon BD TOPO / OSM
 const CHUNK = 120;        // sommets par requête WFS (limite la longueur d'URL)
@@ -265,8 +268,8 @@ async function fetchOsm(samples) {
     return `way[highway](${(i * c - pad).toFixed(4)},${(j * c - pad).toFixed(4)},${((i + 1) * c + pad).toFixed(4)},${((j + 1) * c + pad).toFixed(4)});`;
   });
   const q = `[out:json][timeout:120];(${boxes.join("")});out tags geom qt;`;
-  for (const url of OVERPASS) {
-    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 90000);
+  for (let round = 0; round < OSM_ROUNDS; round++) for (const url of OVERPASS) {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 120000);
     try {
       const r = await fetch(url, { method: "POST", body: new URLSearchParams({ data: q }), signal: ctl.signal });
       if (!r.ok) throw new Error(`OSM ${r.status}`);
@@ -926,7 +929,8 @@ function render(res) {
   $("t-alert").textContent = `${res.alerts.length} · ${fmtKm(res.sum.alertKm * 1000)}`;
   $("notes").innerHTML = notes.map((n) => `<p class="note warn">${esc(n)}</p>`).join("") +
     (res.osm === "pending" ? `<p class="note">OpenStreetMap en cours… les interdictions OSM et le revêtement s'ajouteront tout seuls.</p>` : "") +
-    (res.osm === "fail" ? `<p class="note warn">OpenStreetMap n'a pas répondu : interdictions OSM non vérifiées.</p>` : "");
+    (res.osm === "fail" ? `<p class="note warn">OpenStreetMap n'a pas répondu : interdictions OSM non vérifiées. <button id="osm-retry">Réessayer</button></p>` : "");
+  $("osm-retry")?.addEventListener("click", () => active && loadOsm(active, fetchOsm(active.res.samples)));
 
   // Accès moto : un point peut cumuler plusieurs motifs, d'où un tableau plutôt qu'une barre
   const free = sumIf(samples, (s) => !s.reasons.length);
@@ -947,7 +951,7 @@ function render(res) {
   const tagged = sumIf(samples, (s) => s.osm && (s.osm.properties.surface || s.osm.properties.tracktype));
   $("note-surf").textContent = {
     ok: `Revêtement renseigné explicitement dans OpenStreetMap sur ${pct(tagged, total)} du parcours ; le reste est déduit du type de voie.`,
-    pending: "OpenStreetMap en cours de chargement (jusqu'à 2 min) : revêtement provisoirement déduit de la BD TOPO.",
+    pending: "OpenStreetMap en cours de chargement (parfois plusieurs minutes) : revêtement provisoirement déduit de la BD TOPO.",
     fail: "OpenStreetMap n'a pas répondu : revêtement déduit de la BD TOPO et interdictions OSM non vérifiées.",
   }[res.osm];
 
@@ -1049,6 +1053,22 @@ $("clear").addEventListener("click", () => active && removeTrace(active));
 $("clear-all").addEventListener("click", () => removeTrace(null));
 
 // ---------- Orchestration ----------
+// Complète la trace avec OpenStreetMap quand la requête aboutit (ou note l'échec, avec un bouton pour relancer)
+function loadOsm(t, promise) {
+  const { res } = t;
+  if (res.osm !== "pending") {
+    res.osm = "pending";
+    if (t.sec) t.sec.res.osm = "pending";
+    if (t === active) render(view(t));
+  }
+  promise.then((feats) => { applyOsm(res, feats); res.osm = "ok"; }, () => { res.osm = "fail"; })
+    .then(() => {
+      if (!traces.includes(t)) return; // trace effacée entre-temps
+      if (t.sec) t.sec.res = sectionRes(res, t.sec.i, t.sec.j);
+      if (t === active) { drawMap(res, false); render(view(t)); }
+      renderTraces();
+    });
+}
 const statusEl = $("status");
 function status(msg, frac, err) {
   statusEl.hidden = !msg;
@@ -1065,13 +1085,7 @@ async function analyseFiles(files) {
       traces.push(t);
       select(t);
       status("");
-      osmPromise.then((feats) => { applyOsm(res, feats); res.osm = "ok"; }, () => { res.osm = "fail"; })
-        .then(() => {
-          if (!traces.includes(t)) return; // trace effacée entre-temps
-          if (t.sec) t.sec.res = sectionRes(res, t.sec.i, t.sec.j);
-          if (t === active) { drawMap(res, false); render(view(t)); }
-          renderTraces();
-        });
+      loadOsm(t, osmPromise);
     } catch (e) {
       console.error(e);
       status(`Erreur sur ${file.name} : ${e.message}`, null, true);
