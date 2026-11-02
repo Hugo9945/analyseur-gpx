@@ -38,6 +38,11 @@
   </section>
 
   <section id="results" hidden>
+    <div class="secbar">
+      <button id="sec-pick">Isoler une section</button>
+      <button id="sec-reset" hidden>Trace entière</button>
+      <span id="sec-info"></span>
+    </div>
     <div class="tiles">
       <div class="tile"><span class="k">Distance</span><span class="v" id="t-dist"></span></div>
       <div class="tile"><span class="k">D+ / D−</span><span class="v" id="t-elev"></span></div>
@@ -108,6 +113,7 @@
 
 <main>
   <div id="map"></div>
+  <div id="maphint" class="maphint" hidden></div>
   <div class="mapctl" role="group" aria-label="Couleur de la trace">
     <button data-mode="moto" class="on">Moto</button>
     <button data-mode="surf">Revêtement</button>

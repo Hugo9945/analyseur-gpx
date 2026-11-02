@@ -510,33 +510,42 @@ async function analyseTrace(file, progress) {
     notes.push("Propriétaires non chargés (fichier du département indisponible).");
   }
 
-  const parcelsCrossed = new Map();
-  for (const s of samples) {
-    s.fonc = foncCat(s, owners);
-    if (!s.parcel) continue;
-    const e = parcelsCrossed.get(s.parcel.id) || parcelsCrossed.set(s.parcel.id, { f: s.parcel, len: 0, cat: parcelCat(s.parcel, owners), first: s.at }).get(s.parcel.id);
-    e.len += s.len;
-  }
-  const zonesCrossed = new Map();
-  for (const s of samples) for (const z of s.zones) {
-    const e = zonesCrossed.get(z.id) || zonesCrossed.set(z.id, { z, len: 0, first: s.at }).get(z.id);
-    e.len += s.len;
-  }
+  for (const s of samples) s.fonc = foncCat(s, owners);
 
   const res = { name: file.name.replace(/\.gpx$/i, ""), lines, samples, total, elev: slopes(samples), owners,
-    parcelsCrossed, zonesCrossed, notes, osm: "pending" };
+    ...crossings(samples, owners), notes, osm: "pending" };
   applyOsm(res, null);
   return { res, osmPromise };
 }
 
+// Parcelles et zones traversées, avec la longueur parcourue dans chacune
+function crossings(samples, owners) {
+  const parcelsCrossed = new Map(), zonesCrossed = new Map();
+  for (const s of samples) {
+    if (s.parcel) {
+      const e = parcelsCrossed.get(s.parcel.id) || parcelsCrossed.set(s.parcel.id, { f: s.parcel, len: 0, cat: parcelCat(s.parcel, owners), first: s.at }).get(s.parcel.id);
+      e.len += s.len;
+    }
+    for (const z of s.zones) {
+      const e = zonesCrossed.get(z.id) || zonesCrossed.set(z.id, { z, len: 0, first: s.at }).get(z.id);
+      e.len += s.len;
+    }
+  }
+  return { parcelsCrossed, zonesCrossed };
+}
+
 // Calcule (ou recalcule) tout ce qui dépend d'OpenStreetMap
 function applyOsm(res, feats) {
-  const { samples, total, elev, owners } = res;
-  if (feats) matchNearest(samples, feats).forEach(([f], i) => { samples[i].osm = f; });
-  for (const s of samples) {
+  if (feats) matchNearest(res.samples, feats).forEach(([f], i) => { res.samples[i].osm = f; });
+  for (const s of res.samples) {
     s.surf = surfCat(s.osm && s.osm.properties, s.voie);
     s.reasons = motoReasons(s);
   }
+  summarize(res);
+}
+
+function summarize(res) {
+  const { samples, total, elev, owners } = res;
   res.alerts = alertRuns(samples, owners);
   const pctOf = (fn) => (100 * sumIf(samples, fn)) / total;
   res.sum = {
@@ -548,8 +557,31 @@ function applyOsm(res, feats) {
   };
 }
 
+// Vue restreinte aux points i..j : mêmes données, totaux recalculés. Les km restent ceux de la trace entière.
+function sectionRes(res, i, j) {
+  const samples = res.samples.slice(i, j + 1);
+  const total = samples.reduce((a, s) => a + s.len, 0);
+  let elev = null;
+  if (res.elev) {
+    let up = 0, down = 0, max = null;
+    for (let k = 0; k < samples.length; k++) {
+      const s = samples[k], a = samples[k - 1];
+      if (s.grade != null && (!max || Math.abs(s.grade) > Math.abs(max.grade))) max = s;
+      if (!a || a.line !== s.line || a.z == null || s.z == null) continue;
+      if (s.z > a.z) up += s.z - a.z; else down += a.z - s.z;
+    }
+    elev = { up, down, max };
+  }
+  const km = (s) => (s.at / 1000).toFixed(1);
+  const sub = { ...res, name: `${res.name}-km${km(samples[0])}-${km(samples.at(-1))}`, samples, total,
+    from: samples[0].at - samples[0].len / 2, elev, ...crossings(samples, res.owners) };
+  summarize(sub);
+  return sub;
+}
+
 // ---------- Carte ----------
-const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const $ = (id) => document.getElementById(id);
+const css =(v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const map = L.map("map", { zoomControl: false }).setView([46.6, 2.5], 6);
 L.control.zoom({ position: "bottomleft" }).addTo(map); // le haut est réservé aux boutons de couleur
 const wmts = (layer, fmt = "image/png", style = "normal") => L.tileLayer(
@@ -676,11 +708,85 @@ function showCursor(s) {
   else cursor.setLatLng(ll);
 }
 
+// ---------- Section entre deux points ----------
+// picking : null hors sélection, sinon les indices déjà choisis (0 ou 1)
+const secLayer = L.layerGroup().addTo(map);
+let picking = null;
+const view = (t) => (t.sec ? t.sec.res : t.res);
+const pin = (s, label) => L.marker([s.p[1], s.p[0]], {
+  icon: L.divIcon({ className: "pin", html: label, iconSize: [24, 24] }), interactive: false, zIndexOffset: 1000,
+}).addTo(secLayer);
+
+function hint(msg) { $("maphint").hidden = !msg; $("maphint").textContent = msg || ""; }
+
+// Point échantillonné le plus proche d'un clic, s'il est à moins de 40 px à l'écran
+function nearestSample(res, ll) {
+  let best = -1, bd = Infinity;
+  res.samples.forEach((s, i) => { const d = dist(s.p, [ll.lng, ll.lat]); if (d < bd) { bd = d; best = i; } });
+  if (best < 0) return -1;
+  const s = res.samples[best];
+  return map.latLngToContainerPoint([s.p[1], s.p[0]]).distanceTo(map.latLngToContainerPoint(ll)) <= 40 ? best : -1;
+}
+
+function drawSection(fit) {
+  secLayer.clearLayers();
+  const sec = active && active.sec;
+  $("sec-info").textContent = sec ? `Section du km ${(sec.res.from / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} au km ${((sec.res.from + sec.res.total) / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })}` : "";
+  $("sec-reset").hidden = !sec;
+  $("sec-pick").textContent = picking ? "Annuler" : sec ? "Autre section" : "Isoler une section";
+  if (!sec) return;
+  const parts = runsOf(sec.res.samples, () => 0).map((r) => r.pts);
+  const band = L.polyline(parts, { color: css("--text-primary"), weight: 14, opacity: 0.35, interactive: false }).addTo(secLayer);
+  pin(sec.res.samples[0], "A"); pin(sec.res.samples.at(-1), "B");
+  if (fit) map.fitBounds(band.getBounds(), { padding: [40, 40] });
+}
+
+function startPicking() {
+  if (!active) return;
+  picking = [];
+  $("map").classList.add("picking");
+  hint("Touche le point de départ sur la trace");
+  drawSection(false); // met à jour les boutons
+  secLayer.clearLayers();
+  if (window.matchMedia("(max-width: 800px)").matches) $("map").scrollIntoView({ behavior: "smooth" });
+}
+
+function stopPicking() {
+  picking = null;
+  $("map").classList.remove("picking");
+  hint("");
+}
+
+function setSection(t, i, j) {
+  t.sec = i == null ? null : { i, j, res: sectionRes(t.res, i, j) };
+  if (t !== active) return;
+  drawSection(!!t.sec);
+  render(view(t));
+  if (!t.sec) map.fitBounds(casing.getBounds(), { padding: [20, 20] });
+}
+
+map.on("click", (e) => {
+  if (!picking || !active) return;
+  const i = nearestSample(active.res, e.latlng);
+  if (i < 0) return hint("Trop loin de la trace : touche directement la trace");
+  if (picking.length && Math.abs(i - picking[0]) < 2) return hint("Choisis un point d'arrivée différent");
+  picking.push(i);
+  if (picking.length === 1) { pin(active.res.samples[i], "A"); return hint("Touche maintenant le point d'arrivée"); }
+  const [a, b] = picking.sort((x, y) => x - y);
+  stopPicking();
+  setSection(active, a, b);
+});
+// pendant la sélection, toucher la trace ne doit pas ouvrir de bulle
+map.on("popupopen", () => picking && map.closePopup());
+$("sec-pick").addEventListener("click", () => {
+  if (picking) { stopPicking(); drawSection(false); } else startPicking();
+});
+$("sec-reset").addEventListener("click", () => { stopPicking(); active && setSection(active, null); });
+
 // ---------- Rendu ----------
 const fmtKm = (m) => (m / 1000).toLocaleString("fr-FR", { maximumFractionDigits: m < 10000 ? 2 : 1 }) + " km";
 const pct = (v, t) => (t ? (100 * v / t) : 0).toLocaleString("fr-FR", { maximumFractionDigits: 1 }) + " %";
 const fmtPct = (v) => Math.round(v).toLocaleString("fr-FR") + " %";
-const $ = (id) => document.getElementById(id);
 
 function renderCats(barEl, tabEl, cats, sums, total) {
   barEl.innerHTML = ""; tabEl.innerHTML = "";
@@ -714,7 +820,8 @@ function drawProfile(res) {
   const W = Math.max(box.clientWidth, 280), H = 170, ml = 40, mr = 8, mt = 8, mb = 22;
   let zmin = Math.min(...S.map((s) => s.z)), zmax = Math.max(...S.map((s) => s.z));
   const pad = Math.max(10, (zmax - zmin) * 0.1); zmin = Math.floor((zmin - pad) / 10) * 10; zmax = Math.ceil((zmax + pad) / 10) * 10;
-  const x = (at) => ml + (at / res.total) * (W - ml - mr), y = (z) => mt + (1 - (z - zmin) / (zmax - zmin)) * (H - mt - mb);
+  const a0 = res.from || 0; // début de la section affichée
+  const x = (at) => ml + ((at - a0) / res.total) * (W - ml - mr), y = (z) => mt + (1 - (z - zmin) / (zmax - zmin)) * (H - mt - mb);
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("width", W); svg.setAttribute("height", H);
@@ -728,8 +835,9 @@ function drawProfile(res) {
     el("text", { x: ml - 6, y: y(z) + 4, "text-anchor": "end", class: "axis" }).textContent = `${z} m`;
   }
   const ks = nice(res.total / 1000, 5);
-  for (let k = 0; k <= res.total / 1000; k += ks)
-    el("text", { x: x(k * 1000), y: H - 6, "text-anchor": "middle", class: "axis" }).textContent = `${k} km`;
+  for (let n = Math.ceil(a0 / 1000 / ks); n * ks <= (a0 + res.total) / 1000; n++)
+    el("text", { x: x(n * ks * 1000), y: H - 6, "text-anchor": "middle", class: "axis" }).textContent =
+      `${(n * ks).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} km`;
 
   const colorV = Object.fromEntries(VOIE.map((c) => [c.key, css(c.color)]));
   let run = null;
@@ -749,7 +857,7 @@ function drawProfile(res) {
   const dot = el("circle", { r: 4, class: "cross-dot", visibility: "hidden" });
   const hit = el("rect", { x: ml, y: 0, width: W - ml - mr, height: H, fill: "transparent" });
   const find = (px) => {
-    const at = ((px - ml) / (W - ml - mr)) * res.total;
+    const at = a0 + ((px - ml) / (W - ml - mr)) * res.total;
     let lo = 0, hi = S.length - 1;
     while (lo < hi) { const m = (lo + hi) >> 1; if (S[m].at < at) lo = m + 1; else hi = m; }
     return S[lo];
@@ -882,10 +990,12 @@ const traces = [];
 let active = null;
 
 function select(t) {
+  stopPicking();
   active = t;
   drawOthers();
-  drawMap(t.res, true);
-  render(t.res);
+  drawMap(t.res, !t.sec);
+  drawSection(true);
+  render(view(t));
   renderTraces();
 }
 
@@ -924,6 +1034,8 @@ function removeTrace(t) {
   else traces.length = 0;
   if (traces.length) return select(traces.at(-1));
   active = null;
+  stopPicking();
+  secLayer.clearLayers();
   Object.values(layers).forEach((l) => l.clearLayers());
   others.clearLayers();
   for (const l of [casing, highlight]) if (l) map.removeLayer(l);
@@ -956,7 +1068,8 @@ async function analyseFiles(files) {
       osmPromise.then((feats) => { applyOsm(res, feats); res.osm = "ok"; }, () => { res.osm = "fail"; })
         .then(() => {
           if (!traces.includes(t)) return; // trace effacée entre-temps
-          if (t === active) { drawMap(res, false); render(res); }
+          if (t.sec) t.sec.res = sectionRes(res, t.sec.i, t.sec.j);
+          if (t === active) { drawMap(res, false); render(view(t)); }
           renderTraces();
         });
     } catch (e) {
@@ -972,9 +1085,9 @@ $("file").addEventListener("change", (e) => e.target.files.length && analyseFile
 ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
 ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
 drop.addEventListener("drop", (e) => e.dataTransfer.files.length && analyseFiles(e.dataTransfer.files));
-window.addEventListener("resize", () => active && drawProfile(active.res));
+window.addEventListener("resize", () => active && drawProfile(view(active)));
 // le profil se dessine à la largeur réelle quand on ouvre son menu
-$("sec-profile").addEventListener("toggle", (e) => e.target.open && active && drawProfile(active.res));
+$("sec-profile").addEventListener("toggle", (e) => e.target.open && active && drawProfile(view(active)));
 // permet de tester sans glisser-déposer : ?gpx=/chemin/servi/fichier.gpx
 const q = new URLSearchParams(location.search).get("gpx");
 if (q) fetch(q).then((r) => r.blob()).then((b) => analyseFiles([new File([b], q.split("/").pop())]));

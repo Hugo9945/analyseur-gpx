@@ -147,3 +147,12 @@ td a { color: var(--text-primary); }
 .sec[open] { padding-bottom: 14px; }
 .sec .actions { margin-top: 0; }
 h3 { font-size: 13px; margin: 16px 0 6px; color: var(--text-secondary); }
+
+/* Section entre deux points */
+.secbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 12px; }
+.secbar #sec-info { font-size: 13px; color: var(--text-secondary); }
+.maphint { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 500; max-width: calc(100% - 32px);
+  padding: 8px 14px; border-radius: 999px; background: var(--text-primary); color: var(--surface-1); font-size: 13px; box-shadow: 0 1px 4px #0003; }
+#map.picking { cursor: crosshair; }
+.pin { display: grid; place-items: center; border-radius: 50%; background: var(--text-primary); color: var(--surface-1);
+  border: 2px solid #fff; font: 600 12px/1 system-ui, sans-serif; box-shadow: 0 1px 3px #0005; }
