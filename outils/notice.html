@@ -107,21 +107,21 @@
     <div>
       <table>
         <tr><td>De A à B</td><td>Touche <span class="k">Placer A</span> puis la carte, pareil pour B (80 km max à vol d'oiseau).</td></tr>
-        <tr><td>Boucle depuis A</td><td>Place A et choisis la <b>distance visée</b> (10 à 100 km). La boucle tombe en général à moins de 10 % de la cible.</td></tr>
+        <tr><td>Boucle depuis A</td><td>Place A et choisis la <b>distance visée</b> (10 à 100 km). La boucle va chercher les secteurs de chemins autour de A et les traverse d'un bout à l'autre ; elle tombe en général à moins de 10 % de la cible.</td></tr>
         <tr><td>Préférence</td><td>De <b>Plus court</b> à <b>Max de chemins</b> : plus le curseur est à droite, plus les routes goudronnées sont évitées.</td></tr>
         <tr><td>Prudence</td><td>Écarte aussi les chemins qui longent une parcelle privée (moins de 4 m). Plus sûr, mais beaucoup moins de chemins.</td></tr>
       </table>
     </div>
     <div>
       <ol>
-        <li>Touche <span class="k">Calculer</span>. Le premier calcul dans un secteur prend <b>30 s à 1 min 30</b> (chargement du réseau IGN) ; les suivants sont plus rapides.</li>
+        <li>Touche <span class="k">Calculer</span>. Compte <b>1 à 2 min</b> pour 40 km, jusqu'à <b>5 à 7 min</b> pour 100 km (réseau IGN, puis vérification du cadastre chemin par chemin).</li>
         <li>La trace ne te plaît pas ? <span class="k">↻ Nouvelle trace</span> en propose une autre avec les mêmes réglages et le même départ.</li>
         <li>Garde-la avec <span class="k">Exporter la trace (GPX)</span>, dans le menu Exports, pour ton GPS.</li>
       </ol>
     </div>
   </div>
   <div class="box">
-    <b>Ce que l'app écarte.</b> Sentiers, escaliers, pistes cyclables, voies privées ou réservées aux ayants droit (IGN), cœurs de parc et réserves, et les chemins qui traversent une <b>parcelle privée</b> : le cadastre est vérifié pendant le calcul. Quand OpenStreetMap répond, ses interdictions déclenchent un recalcul automatique ; s'il reste des points d'attention, <span class="k">Éviter les points d'attention</span> relance un contournement. La part de chemins dépend du secteur : autour de 50 à 65 % quand beaucoup de chemins sont privés.
+    <b>Ce que l'app écarte.</b> Sentiers, escaliers, pistes cyclables, voies privées ou réservées aux ayants droit (IGN), chemins des cœurs de parc et réserves (les routes goudronnées qui les traversent restent permises), et les chemins qui traversent une <b>parcelle privée</b> : le cadastre est vérifié pendant le calcul. Quand OpenStreetMap répond, ses interdictions déclenchent un recalcul automatique ; s'il reste des points d'attention, <span class="k">Éviter les points d'attention</span> relance un contournement.<br><b>Part de route.</b> Elle dépend du secteur : l'app mesure sur place quelle part des chemins est privée et s'en sert pour choisir la boucle. Compte 30 à 40 % de route là où les chemins sont surtout publics (Yonne), 60 à 65 % là où la plupart sont privés (Comminges : 3 chemins sans nom sur 4).
   </div>
 </section>
 

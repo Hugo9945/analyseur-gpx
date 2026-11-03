@@ -409,7 +409,8 @@ function motoReasons(s) {
   if (p && (p.acces_vehicule_leger === "Restreint aux ayants droit" || p.prive)) r.push("ayantsdroit");
   if (osmMotoBan(s.osm && s.osm.properties)) r.push("osm");
   if (s.voie === "sentier" || (p && p.acces_vehicule_leger === "Physiquement impossible")) r.push("sentier");
-  if (s.zones.some((z) => z.strong)) r.push("zone");
+  // une route goudronnée reste ouverte dans une réserve ou un cœur de parc (ponts sur une rivière protégée…)
+  if (s.voie !== "revetue" && s.zones.some((z) => z.strong)) r.push("zone");
   return r;
 }
 
