@@ -415,7 +415,7 @@ function planLoop(g, a, target, pref, seed, prev) {
   if (fixed && Math.abs(fixed.path.len / target - 1) <= 0.1) return fixed;
   // le plus de chemins (et pas plus de RT_MAX_ROAD de route), la bonne distance, pas d'aller-retour sur un même bout
   const score = (l, d = dirtExpected(l.path)) => (pref ? d - 3 * Math.max(0, 1 - d - RT_MAX_ROAD) : 0)
-    - 2 * Math.abs(l.path.len / target - 1) - 8 * Math.max(0, Math.abs(l.path.len / target - 1) - 0.1) - 3 * l.path.dup / l.path.len;
+    - 2 * Math.abs(l.path.len / target - 1) - 8 * Math.max(0, Math.abs(l.path.len / target - 1) - 0.1) - 10 * l.path.dup / l.path.len;
   const n = Math.max(4, Math.round(target / RT_LEG));
   let best = fixed || null;
   for (let i = 0; i < RT_CANDIDATES; i++) {
