@@ -14,6 +14,7 @@ const RT_SECTOR_MIN = 1500;  // m : longueur minimale d'un secteur de chemins vi
 const RT_MAX_SCALE = 1.6;    // agrandissement maximal du cercle lors du calibrage (l'emprise chargée en tient compte)
 const RT_REUSE = 30;         // surcoût par mètre d'un tronçon déjà emprunté (l'équivalent de 30 m de chemin) : pas d'aller-retour
                              // tant qu'un autre passage existe, mais pas non plus de détour de dizaines de km pour l'éviter
+const RT_SCAN_KM = 10;       // rayon de la carte des chemins publics autour de A
 const RT_PRIV_MIN = 20;      // m en parcelle privée à partir desquels un tronçon est écarté
 const RT_CHECK_ROUNDS = 20;  // vérifications du cadastre (puis recalcul) avant l'analyse complète
 const RT_EXPLORE = 8;        // premières vérifications où une boucle peut encore en remplacer une autre ; ensuite on la répare
@@ -94,6 +95,10 @@ function rtDoubt(e) {
   return e.kind && !e.checked ? 1 / Math.sqrt((rt.net && rt.net.rates || RT_OK_PRIOR)[e.kind]) : 1;
 }
 
+// Verdict du cadastre d'un tronçon (motif d'exclusion, ou "" s'il est public), conservé quand le réseau
+// est rechargé pour une autre emprise
+const edgeKey = (e) => `${e.f.id}@${e.coords[0]}`;
+
 function buildGraph(feats, zones) {
   const inZone = polyIndex(zones, true);
   const ids = new Map(), xy = [], adj = [];
@@ -110,6 +115,8 @@ function buildGraph(feats, zones) {
     for (let i = 1; i < part.length; i++) len += dist(part[i - 1], part[i]);
     const mid = part[part.length >> 1];
     const e = { f, coords: part, len, mid, ban: rtBan(f.properties, inZone, mid), kind: rtKind(f.properties) };
+    const v = rt.verdict.get(edgeKey(e));
+    if (v != null) { e.checked = true; e.ban = e.ban || v || null; }
     const a = node(part[0]), b = node(part.at(-1));
     e.a = a; e.b = b;
     edges.push(e);
@@ -214,7 +221,7 @@ function saveGpx(name, lines) {
 // Enchaîne les plus courts chemins entre des nœuds successifs ; un tronçon déjà parcouru coûte plus cher.
 // blocks[i] : ensembles de tronçons à ne pas emprunter pour atteindre nodes[i], si un autre passage existe.
 function chainPath(g, nodes, pref, blocks = []) {
-  const used = new Set(), coords = [], edges = [], segs = [];
+  const used = new Set(), coords = [], edges = [];
   for (let i = 1; i < nodes.length; i++) {
     let p = shortestPath(g, nodes[i - 1], nodes[i], pref, rt.avoid, used);
     if (!p) return null;
@@ -223,41 +230,41 @@ function chainPath(g, nodes, pref, blocks = []) {
     if (blk && blk.length) p = shortestPath(g, nodes[i - 1], nodes[i], pref, { has: (e) => rt.avoid.has(e) || blk.some((b) => b.has(e)) }, used, 3 * p.cost) || p;
     coords.push(...(coords.length ? p.coords.slice(1) : p.coords));
     for (const e of p.edges) { edges.push(e); used.add(e); }
-    segs.push(...p.segs);
   }
   const seen = new Set();
   let dup = 0;
   for (const e of edges) if (seen.has(e)) dup += e.len; else seen.add(e);
-  return { coords, edges, segs, len: edges.reduce((a, e) => a + e.len, 0), dup };
+  return { coords, edges, len: edges.reduce((a, e) => a + e.len, 0), dup };
 }
 
-// Vérifie le cadastre des tronçons d'un itinéraire pas encore contrôlés et écarte ceux qui traversent
-// une parcelle privée. strict : compte aussi les passages à moins de EDGE_TOL m d'une limite de parcelle
-// (souvent un chemin rural mal calé sur le cadastre, mais parfois un chemin d'exploitation privé).
-// Renvoie le nombre de tronçons écartés, et failed si une partie des requêtes a échoué : les tronçons
-// sans parcelle privée trouvée restent alors à contrôler au tour suivant.
-async function checkPrivate(path, strict) {
-  const idx = path.edges.map((e, i) => i).filter((i) => !path.edges[i].checked && !path.edges[i].ban);
-  if (!idx.length) return { n: 0 };
-  // tronçons consécutifs à contrôler, réunis en lignes continues pour limiter le nombre de requêtes
-  const lines = [];
-  idx.forEach((i, k) => {
-    if (k && idx[k - 1] === i - 1) lines.at(-1).push(...path.segs[i].slice(1));
-    else lines.push([...path.segs[i]]);
-  });
-  const found = new Map();
-  let failed = false;
-  for (const feats of await pool(chunks(lines).map((c) => () =>
-    wfs("CADASTRALPARCELS.PARCELLAIRE_EXPRESS:parcelle", { CQL_FILTER: `DWITHIN(geom,${wkt(c)},8,meters)` })
-      .catch((e) => { console.warn("cadastre", e); failed = true; return []; })), 3))
+// Vérifie le cadastre de tronçons pas encore contrôlés et écarte ceux qui traversent une parcelle privée.
+// strict : compte aussi les passages à moins de EDGE_TOL m d'une limite de parcelle (souvent un chemin rural
+// mal calé sur le cadastre, mais parfois un chemin d'exploitation privé). Les tronçons sont envoyés par lots
+// (MULTILINESTRING d'au plus CHUNK points), dans l'ordre reçu : mieux vaut des voisins d'un même lot.
+// Renvoie le nombre de tronçons écartés, et failed si une partie des requêtes a échoué : les tronçons de ces
+// lots sans parcelle privée trouvée restent à contrôler.
+async function checkEdges(list, strict, progress = () => {}) {
+  const todo = [...new Set(list)].filter((e) => !e.checked && !e.ban);
+  if (!todo.length) return { n: 0 };
+  const lots = [[]];
+  let pts = 0;
+  for (const e of todo) {
+    if (pts + e.coords.length > CHUNK && lots.at(-1).length) { lots.push([]); pts = 0; }
+    lots.at(-1).push(e); pts += e.coords.length;
+  }
+  const found = new Map(), lost = new Set(); // tronçons des lots dont la requête a échoué
+  let done = 0;
+  for (const feats of await pool(lots.map((l) => () => {
+    const geom = `MULTILINESTRING(${l.map((e) => `(${coords(e.coords.length > CHUNK ? e.coords.filter((c, i, a) => i % Math.ceil(a.length / CHUNK) === 0 || i === a.length - 1) : e.coords)})`).join(",")})`;
+    return wfs("CADASTRALPARCELS.PARCELLAIRE_EXPRESS:parcelle", { CQL_FILTER: `DWITHIN(geom,${geom},8,meters)` })
+      .catch((err) => { console.warn("cadastre", err); l.forEach((e) => lost.add(e)); return []; });
+  }), 3, () => progress(++done / lots.length)))
     for (const f of feats) found.set(f.id, f);
   const parcels = [...found.values()];
   const owners = await fetchOwners([...new Set(parcels.map((f) => f.properties.idu))]);
   const inParcel = polyIndex(parcels);
   let n = 0;
-  for (const i of idx) {
-    const e = path.edges[i];
-    e.checked = !failed;
+  for (const e of todo) {
     let priv = 0;
     for (let j = 1; j < e.coords.length; j++) {
       const a = e.coords[j - 1], b = e.coords[j], d = dist(a, b), k = Math.max(1, Math.ceil(d / STEP));
@@ -268,10 +275,11 @@ async function checkPrivate(path, strict) {
         if ((c === "particulier" || c === "pmprivee") && (strict || boundaryDist(p, f) >= EDGE_TOL)) priv += d / k;
       }
     }
-    if (priv >= RT_PRIV_MIN || priv > e.len / 2) { e.ban = "parcelle privée"; e.checked = true; n++; }
+    if (priv >= RT_PRIV_MIN || priv > e.len / 2) { e.ban = "parcelle privée"; n++; }
+    if (e.ban || !lost.has(e)) { e.checked = true; rt.verdict.set(edgeKey(e), e.ban || ""); }
   }
   rtLearnRates(rt.net);
-  return { n, failed };
+  return { n, failed: lost.size > 0 };
 }
 
 // Point à d mètres de p dans la direction ang (radians, 0 = nord)
@@ -418,8 +426,9 @@ function planLoop(g, a, target, pref, seed, prev) {
 }
 
 // ---------- Interface ----------
-const rt = { mode: "ab", a: null, b: null, pick: null, net: null, netBox: null, avoid: new Set(), osmRounds: 0,
-  loop: null, via: null, seed: Math.random() * 2 * Math.PI, trace: null, markers: L.layerGroup().addTo(map) };
+const rt = { mode: "ab", a: null, b: null, pick: null, net: null, netBox: null, avoid: new Set(), osmRounds: 0, verdict: new Map(),
+  loop: null, via: null, seed: Math.random() * 2 * Math.PI, trace: null, markers: L.layerGroup().addTo(map),
+  scan: null, scanLayer: L.layerGroup().addTo(map) };
 
 function rtDraw() {
   rt.markers.clearLayers();
@@ -434,6 +443,8 @@ function rtDraw() {
   document.querySelectorAll("#rt-mode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === rt.mode));
   $("rt-go").disabled = rt.busy || !(rt.a && (loop || rt.b));
   $("rt-again").disabled = $("rt-avoid").disabled = rt.busy;
+  $("rt-scan").disabled = rt.busy || !rt.a;
+  $("rt-scan").textContent = rt.scan ? "Masquer les chemins publics" : `Chemins publics à ${RT_SCAN_KM} km de A`;
   $("rt-go").textContent = loop ? "Calculer la boucle" : "Calculer l'itinéraire";
   $("rt-again").hidden = !(rt.trace && traces.includes(rt.trace));
   $("rt-avoid").hidden = !(rt.trace && traces.includes(rt.trace));
@@ -473,6 +484,7 @@ async function ensureNet(bbox) {
   rt.avoid.clear(); // les tronçons écartés appartenaient à l'ancien graphe
   rt.net = buildGraph(feats, zones);
   rt.netBox = bbox;
+  rtLearnRates(rt.net); // d'après les verdicts déjà connus
   return rt.net;
 }
 
@@ -522,7 +534,7 @@ async function rtRun(round = 0) {
       path = compute(k);
       if (k > RT_CHECK_ROUNDS) break;
       // cadastre indisponible deux fois de suite : on passe à l'analyse, qui signalera ce qui reste à éviter
-      const { n, failed } = await checkPrivate(path, strict).catch((e) => (console.warn("cadastre", e), { n: 0, failed: true }));
+      const { n, failed } = await checkEdges(path.edges, strict).catch((e) => (console.warn("cadastre", e), { n: 0, failed: true }));
       fails = failed ? fails + 1 : 0;
       if (fails >= 2 || (!n && !failed)) break;
     }
@@ -542,6 +554,54 @@ async function rtRun(round = 0) {
   } finally {
     if (!chained) { rt.busy = false; rtDraw(); }
   }
+}
+
+// Carte des chemins publics : vérifie le cadastre de tous les chemins à moins de RT_SCAN_KM de A et les dessine,
+// pour choisir un départ où il y en a. Les verdicts servent ensuite au calcul des itinéraires.
+async function rtScan() {
+  const a = rt.a, r = RT_SCAN_KM * 1000;
+  rt.busy = true;
+  rtDraw();
+  try {
+    const g = await ensureNet(boxAround([a], r + 2000));
+    const list = g.edges.filter((e) => isDirt(e) && !e.ban && dist(e.mid, a) <= r);
+    // ordre en serpentin par cellules d'environ 500 m : chaque lot de la requête couvre un petit secteur
+    const cell = (e) => { const y = Math.floor(e.mid[1] / 0.0045), x = Math.floor(e.mid[0] / 0.006); return y * 1e6 + (y % 2 ? -x : x); };
+    list.sort((p, q) => cell(p) - cell(q));
+    const km = Math.round(list.reduce((s, e) => s + e.len, 0) / 1000);
+    await checkEdges(list, $("rt-strict").checked, (f) => status(`Vérification du cadastre de ${km} km de chemins…`, f));
+    rt.scan = { a, r };
+    rtShowScan();
+    status("");
+  } catch (e) {
+    console.error(e);
+    status(`Vérification impossible : ${e.message}`, null, true);
+  } finally {
+    rt.busy = false;
+    rtDraw();
+  }
+}
+
+function rtShowScan() {
+  rt.scanLayer.clearLayers();
+  $("rt-scan-info").hidden = !rt.scan;
+  if (!rt.scan) return;
+  const { a, r } = rt.scan, km = { pub: 0, priv: 0, todo: 0, road: 0 };
+  for (const e of rt.net.edges) {
+    if (dist(e.mid, a) > r) continue;
+    if (!isDirt(e)) { if (!e.ban) km.road += e.len; continue; }
+    const k = !e.ban ? (e.checked ? "pub" : "todo") : "priv";
+    km[k] += e.len;
+    L.polyline(e.coords.map((c) => [c[1], c[0]]), { color: css(k === "pub" ? "--s3" : k === "priv" ? "--s8" : "--neutral"),
+      weight: k === "pub" ? 4 : 2, opacity: k === "pub" ? 0.95 : 0.5, interactive: false }).addTo(rt.scanLayer);
+  }
+  L.circle([a[1], a[0]], { radius: r, color: css("--text-muted"), weight: 1, dashArray: "4 4", fill: false, interactive: false }).addTo(rt.scanLayer);
+  // ce qui compte pour la boucle : les chemins publics face aux routes qui les relient
+  const f = (m) => `${Math.round(m / 1000)} km`, share = km.pub / Math.max(1, km.pub + km.road);
+  $("rt-scan-info").innerHTML = `À moins de ${RT_SCAN_KM} km de A : <b>${f(km.pub)} de chemins publics</b> (en vert) pour ${f(km.road)} de routes, ` +
+    `et ${f(km.priv)} de chemins privés ou interdits (en rouge)` + (km.todo > 500 ? `, ${f(km.todo)} non vérifiés (en gris)` : "") + `. ` +
+    (share < 0.25 ? "Secteur pauvre : une boucle par ici passera surtout par la route." : share < 0.35 ? "Secteur moyen." : "Secteur favorable.");
+  map.fitBounds(L.latLng(a[1], a[0]).toBounds(2 * r));
 }
 
 // OSM arrive après coup, par tuiles d'environ 1 km autour de l'itinéraire : on s'en sert pour écarter tous les
@@ -601,11 +661,14 @@ $("rt-again").addEventListener("click", () => {
 });
 document.querySelectorAll("#rt-mode button").forEach((b) => b.addEventListener("click", () => { rt.mode = b.dataset.mode; rt.loop = rt.via = null; rtDraw(); }));
 $("rt-strict").addEventListener("change", () => {
+  rt.verdict.clear();
+  rt.scan = null; rtShowScan(); rtDraw(); // la carte des chemins publics dépend de ce réglage
   if (rt.net) rt.net.rates = null;
   for (const e of rt.net ? rt.net.edges : []) { e.checked = false; if (e.ban === "parcelle privée") e.ban = null; }
 });
 $("rt-km").addEventListener("input", (e) => { $("rt-km-v").textContent = `${e.target.value} km`; rt.loop = null; });
 $("rt-avoid").addEventListener("click", () => rtAvoid());
+$("rt-scan").addEventListener("click", () => { if (rt.scan) { rt.scan = null; rtShowScan(); rtDraw(); } else rtScan(); });
 $("rt-pref").addEventListener("input", (e) => { $("rt-pref-v").textContent = e.target.value >= 0.7 ? "le plus de chemins" : e.target.value <= 0.3 ? "le plus court" : "équilibré"; });
 $("gpx-out").addEventListener("click", () => {
   if (!active) return;
