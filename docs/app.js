@@ -260,7 +260,7 @@ async function fetchZones(lines) {
 }
 
 // Voies OSM (revêtement, interdictions) : une seule requête Overpass, par tuiles d'environ 1 km
-async function fetchOsm(samples) {
+async function fetchOsm(samples, signal) {
   const c = 0.01, pad = 0.0003, tiles = new Set();
   for (const s of samples) tiles.add(Math.floor(s.p[1] / c) + ":" + Math.floor(s.p[0] / c));
   const boxes = [...tiles].map((t) => {
@@ -269,7 +269,10 @@ async function fetchOsm(samples) {
   });
   const q = `[out:json][timeout:120];(${boxes.join("")});out tags geom qt;`;
   for (let round = 0; round < OSM_ROUNDS; round++) for (const url of OVERPASS) {
+    if (signal && signal.aborted) throw new Error("annulé");
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 120000);
+    const stop = () => ctl.abort();
+    if (signal) signal.addEventListener("abort", stop);
     try {
       const r = await fetch(url, { method: "POST", body: new URLSearchParams({ data: q }), signal: ctl.signal });
       if (!r.ok) throw new Error(`OSM ${r.status}`);
@@ -279,7 +282,7 @@ async function fetchOsm(samples) {
       }));
     } catch (e) {
       console.warn("Overpass", url, e);
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); if (signal) signal.removeEventListener("abort", stop); }
   }
   throw new Error("OpenStreetMap indisponible");
 }
@@ -477,7 +480,9 @@ function alertRuns(samples, owners) {
 async function analyseTrace(file, progress) {
   const lines = parseGpx(await file.text());
   const { samples, total } = sample(lines);
-  const osmPromise = fetchOsm(samples);
+  // annulé quand la trace est effacée, pour ne pas occuper Overpass (nombre de requêtes simultanées limité)
+  const osmCtl = new AbortController();
+  const osmPromise = fetchOsm(samples, osmCtl.signal);
 
   const state = { ign: 0, alti: "…" };
   const tell = () => progress(`Données IGN ${Math.round(state.ign * 100)} % · altitudes ${state.alti}`, state.ign);
@@ -516,7 +521,7 @@ async function analyseTrace(file, progress) {
   for (const s of samples) s.fonc = foncCat(s, owners);
 
   const res = { name: file.name.replace(/\.gpx$/i, ""), lines, samples, total, elev: slopes(samples), owners,
-    ...crossings(samples, owners), notes, osm: "pending" };
+    ...crossings(samples, owners), notes, osm: "pending", osmCtl };
   applyOsm(res, null);
   return { res, osmPromise };
 }
@@ -930,7 +935,7 @@ function render(res) {
   $("notes").innerHTML = notes.map((n) => `<p class="note warn">${esc(n)}</p>`).join("") +
     (res.osm === "pending" ? `<p class="note">OpenStreetMap en cours… les interdictions OSM et le revêtement s'ajouteront tout seuls.</p>` : "") +
     (res.osm === "fail" ? `<p class="note warn">OpenStreetMap n'a pas répondu : interdictions OSM non vérifiées. <button id="osm-retry">Réessayer</button></p>` : "");
-  $("osm-retry")?.addEventListener("click", () => active && loadOsm(active, fetchOsm(active.res.samples)));
+  $("osm-retry")?.addEventListener("click", () => active && loadOsm(active, fetchOsm(active.res.samples, (active.res.osmCtl = new AbortController()).signal)));
 
   // Accès moto : un point peut cumuler plusieurs motifs, d'où un tableau plutôt qu'une barre
   const free = sumIf(samples, (s) => !s.reasons.length);
@@ -1034,6 +1039,7 @@ function renderTraces() {
 
 // Efface une trace (ou toutes) : rien ne reste en mémoire ni sur la carte.
 function removeTrace(t) {
+  for (const x of t ? [t] : traces) x.res.osmCtl.abort();
   if (t) traces.splice(traces.indexOf(t), 1);
   else traces.length = 0;
   if (traces.length) return select(traces.at(-1));
@@ -1061,9 +1067,11 @@ function loadOsm(t, promise) {
     if (t.sec) t.sec.res.osm = "pending";
     if (t === active) render(view(t));
   }
-  promise.then((feats) => { applyOsm(res, feats); res.osm = "ok"; }, () => { res.osm = "fail"; })
+  let osmFeats = null;
+  promise.then((feats) => { applyOsm(res, feats); res.osm = "ok"; osmFeats = feats; }, () => { res.osm = "fail"; })
     .then(() => {
       if (!traces.includes(t)) return; // trace effacée entre-temps
+      if (osmFeats && t.onOsm && t.onOsm(osmFeats)) return; // itinéraire recalculé avec ces données
       if (t.sec) t.sec.res = sectionRes(res, t.sec.i, t.sec.j);
       if (t === active) { drawMap(res, false); render(view(t)); }
       renderTraces();

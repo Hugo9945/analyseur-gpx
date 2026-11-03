@@ -7,7 +7,8 @@ Pensé pour la moto enduro et trail. Glisse une ou plusieurs traces `.gpx`, obti
 - le type de voie (BD TOPO) et le revêtement (OpenStreetMap, sinon déduit de la BD TOPO) ;
 - les zones réglementées traversées (cœurs de parcs nationaux, réserves, arrêtés de biotope, Natura 2000, PNR) ;
 - le foncier traversé (cadastre IGN + fichier DGFiP des personnes morales) ;
-- un tableau comparatif quand plusieurs traces sont chargées, et des exports CSV.
+- un tableau comparatif quand plusieurs traces sont chargées, et des exports CSV et GPX (trace ou section isolée) ;
+- un générateur d'itinéraire de A à B (`docs/route.js`) : plus court chemin (A*) sur le réseau BD TOPO en écartant sentiers, pistes cyclables, voies privées ou réservées et zones protégées strictes, en préférant les chemins aux routes ; l'itinéraire est ensuite analysé et recalculé automatiquement pour contourner les parcelles privées et les interdictions OpenStreetMap.
 
 Tout tourne dans le navigateur : la trace n'est envoyée nulle part. Les données IGN (Géoplateforme) et OpenStreetMap (Overpass) sont chargées en direct ; OpenStreetMap peut mettre une à deux minutes, ses résultats s'ajoutent alors automatiquement.
 

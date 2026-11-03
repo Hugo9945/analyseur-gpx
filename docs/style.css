@@ -163,3 +163,15 @@ h3 { font-size: 13px; margin: 16px 0 6px; color: var(--text-secondary); }
 .btn { flex: none; display: inline-block; padding: 5px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1);
   color: var(--text-primary); font-size: 13px; text-decoration: none; }
 .btn:hover { border-color: var(--accent); }
+
+/* Créer un itinéraire */
+.sec.rt { margin-top: 12px; border-top: 1px solid var(--border); }
+.rt-pts { display: flex; gap: 8px; margin: 4px 0 12px; }
+.rt-pts button { flex: 1; }
+button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+.rt-pref { display: grid; gap: 4px; font-size: 13px; color: var(--text-secondary); }
+.rt-pref input { width: 100%; accent-color: var(--accent); }
+.rt-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); }
+.pin.pin-rt { background: var(--accent); }
