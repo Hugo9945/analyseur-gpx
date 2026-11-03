@@ -49,12 +49,13 @@
       <input type="range" id="rt-pref" min="0" max="1" step="0.1" value="1">
       <span class="rt-ends"><span>Plus court</span><span>Max de chemins</span></span>
     </label>
+    <label class="check"><input type="checkbox" id="rt-strict"> Prudence : éviter aussi les chemins en limite de parcelle privée</label>
     <div class="actions">
       <button id="rt-go" class="primary" disabled>Calculer l'itinéraire</button>
       <button id="rt-again" hidden>Autre boucle</button>
       <button id="rt-avoid" hidden>Éviter les points d'attention</button>
     </div>
-    <p class="note">Écarte les sentiers, pistes cyclables, voies privées ou réservées aux ayants droit et les réserves (IGN). L'itinéraire est ensuite analysé comme une trace : « Éviter les points d'attention » le recalcule sans les passages signalés (parcelles privées, interdictions OSM).</p>
+    <p class="note">Écarte les sentiers, pistes cyclables, voies privées ou réservées aux ayants droit, les réserves (IGN) et les chemins qui traversent une parcelle privée (cadastre). L'itinéraire est ensuite analysé comme une trace ; les interdictions OpenStreetMap, connues plus tard, déclenchent un recalcul automatique.</p>
   </details>
 
   <div id="status" hidden></div>
