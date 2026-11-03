@@ -26,6 +26,7 @@
   .warn { border-left: 3px solid #e34948; }
   .k { display: inline-block; border: 1px solid #b9b8b1; border-radius: 4px; padding: 0 5px; font-size: 9pt; background: #fff; white-space: nowrap; }
   .muted { color: #52514e; }
+  .page2 { break-before: page; }
   footer { margin-top: 12px; padding-top: 6px; border-top: 1px solid #dddcd6; color: #7a7974; font-size: 8.5pt; }
 </style>
 </head>
@@ -68,7 +69,7 @@
     <tr><td>Type de voie</td><td>Route, chemin, sentier (BD TOPO IGN).</td></tr>
     <tr><td>Zones</td><td>Parcs nationaux, réserves, biotopes, Natura 2000.</td></tr>
     <tr><td>Foncier</td><td>Public, privé, non cadastré, forêt publique.</td></tr>
-    <tr><td>Exports</td><td>CSV des points d'attention et des parcelles ; boutons Effacer.</td></tr>
+    <tr><td>Exports</td><td>Trace en GPX (ou la section isolée), CSV des points d'attention et des parcelles ; boutons Effacer.</td></tr>
   </table>
 </section>
 </div>
@@ -96,20 +97,51 @@
   <p><span class="k">Autre section</span> pour recommencer, <span class="k">Trace entière</span> pour revenir. Les km affichés restent ceux de la trace complète.</p>
 </section>
 
-<section>
-  <h2><span class="n">6</span>Si OpenStreetMap ne répond pas</h2>
-  <p>Son serveur gratuit est souvent saturé. L'app essaie 4 serveurs, deux fois. Si le message rouge apparaît quand même, touche <span class="k">Réessayer</span> : seule la partie OSM est relancée.</p>
+</div>
+</div>
+
+<section class="page2">
+  <h2><span class="n">6</span>Créer un itinéraire</h2>
+  <p>Menu <span class="k">Créer un itinéraire</span>, sous le cadre de dépôt. L'app génère une sortie par les voies a priori ouvertes aux motos, puis l'analyse comme une trace normale.</p>
+  <div class="cols">
+    <div>
+      <table>
+        <tr><td>De A à B</td><td>Touche <span class="k">Placer A</span> puis la carte, pareil pour B (80 km max à vol d'oiseau).</td></tr>
+        <tr><td>Boucle depuis A</td><td>Place A et choisis la <b>distance visée</b> (10 à 100 km). La boucle tombe en général à moins de 10 % de la cible.</td></tr>
+        <tr><td>Préférence</td><td>De <b>Plus court</b> à <b>Max de chemins</b> : plus le curseur est à droite, plus les routes goudronnées sont évitées.</td></tr>
+        <tr><td>Prudence</td><td>Écarte aussi les chemins qui longent une parcelle privée (moins de 4 m). Plus sûr, mais beaucoup moins de chemins.</td></tr>
+      </table>
+    </div>
+    <div>
+      <ol>
+        <li>Touche <span class="k">Calculer</span>. Le premier calcul dans un secteur prend <b>30 s à 1 min 30</b> (chargement du réseau IGN) ; les suivants sont plus rapides.</li>
+        <li>La trace ne te plaît pas ? <span class="k">↻ Nouvelle trace</span> en propose une autre avec les mêmes réglages et le même départ.</li>
+        <li>Garde-la avec <span class="k">Exporter la trace (GPX)</span>, dans le menu Exports, pour ton GPS.</li>
+      </ol>
+    </div>
+  </div>
+  <div class="box">
+    <b>Ce que l'app écarte.</b> Sentiers, escaliers, pistes cyclables, voies privées ou réservées aux ayants droit (IGN), cœurs de parc et réserves, et les chemins qui traversent une <b>parcelle privée</b> : le cadastre est vérifié pendant le calcul. Quand OpenStreetMap répond, ses interdictions déclenchent un recalcul automatique ; s'il reste des points d'attention, <span class="k">Éviter les points d'attention</span> relance un contournement. La part de chemins dépend du secteur : autour de 50 à 65 % quand beaucoup de chemins sont privés.
+  </div>
 </section>
 
+<div class="cols">
+<div>
 <section>
-  <h2><span class="n">7</span>Confidentialité</h2>
-  <p>Rien n'est enregistré : la trace est analysée dans ton navigateur et disparaît avec <span class="k">Effacer</span> ou en fermant la page.</p>
+  <h2><span class="n">7</span>Si OpenStreetMap ne répond pas</h2>
+  <p>Son serveur gratuit est souvent saturé. L'app essaie 4 serveurs, deux fois. Si le message rouge apparaît quand même, touche <span class="k">Réessayer</span> : seule la partie OSM est relancée.</p>
+</section>
+</div>
+<div>
+<section>
+  <h2><span class="n">8</span>Confidentialité</h2>
+  <p>Rien n'est enregistré : les traces et itinéraires sont calculés dans ton navigateur et disparaissent avec <span class="k">Effacer</span> ou en fermant la page.</p>
 </section>
 </div>
 </div>
 
 <section class="box warn">
-  <b>À garder en tête.</b> C'est un indicateur, pas un avis juridique. Les véhicules à moteur sont interdits hors des voies ouvertes à la circulation publique (art. L362-1 du code de l'environnement). Un maire ou un préfet peut fermer un chemin par arrêté sans que ce soit dans aucune base : <b>la signalisation sur place prime</b>. « Particulier » veut dire « probable » (les noms des particuliers ne sont pas publics), et OSM est souvent incomplet sur les chemins.
+  <b>À garder en tête.</b> C'est un indicateur, pas un avis juridique. Les véhicules à moteur sont interdits hors des voies ouvertes à la circulation publique (art. L362-1 du code de l'environnement). Un maire ou un préfet peut fermer un chemin par arrêté sans que ce soit dans aucune base : <b>la signalisation sur place prime</b>. «&nbsp;Particulier&nbsp;» veut dire «&nbsp;probable&nbsp;» (les noms des particuliers ne sont pas publics), et OSM est souvent incomplet sur les chemins.
 </section>
 
 <footer>Sources : IGN Géoplateforme (BD TOPO, cadastre, RGE ALTI, zones PatriNat), DGFiP (parcelles des personnes morales), © contributeurs OpenStreetMap.</footer>
