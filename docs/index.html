@@ -31,11 +31,19 @@
   <p class="privacy">Rien n'est conservé : les traces sont analysées dans ton navigateur, jamais enregistrées ni envoyées à un serveur du site, et elles disparaissent quand tu cliques sur « Effacer » ou fermes la page.</p>
 
   <details class="sec rt" id="rt">
-    <summary><span class="t">Créer un itinéraire</span><span class="s">De A à B, par le plus de chemins a priori autorisés</span></summary>
+    <summary><span class="t">Créer un itinéraire</span><span class="s">De A à B ou en boucle, par le plus de chemins a priori autorisés</span></summary>
+    <div class="seg" id="rt-mode">
+      <button data-mode="ab" class="on">De A à B</button>
+      <button data-mode="loop">Boucle depuis A</button>
+    </div>
     <div class="rt-pts">
       <button id="rt-a">Placer A</button>
       <button id="rt-b">Placer B</button>
     </div>
+    <label class="rt-pref" id="rt-loop-opts" hidden>
+      <span>Distance visée : <b id="rt-km-v">40 km</b></span>
+      <input type="range" id="rt-km" min="10" max="100" step="5" value="40">
+    </label>
     <label class="rt-pref">
       <span>Préférence : <b id="rt-pref-v">le plus de chemins</b></span>
       <input type="range" id="rt-pref" min="0" max="1" step="0.1" value="1">
@@ -43,6 +51,7 @@
     </label>
     <div class="actions">
       <button id="rt-go" class="primary" disabled>Calculer l'itinéraire</button>
+      <button id="rt-again" hidden>Autre boucle</button>
       <button id="rt-avoid" hidden>Éviter les points d'attention</button>
     </div>
     <p class="note">Écarte les sentiers, pistes cyclables, voies privées ou réservées aux ayants droit et les réserves (IGN). L'itinéraire est ensuite analysé comme une trace : « Éviter les points d'attention » le recalcule sans les passages signalés (parcelles privées, interdictions OSM).</p>
