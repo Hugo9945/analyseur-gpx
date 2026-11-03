@@ -9,7 +9,7 @@ const RT_OSM_ROUNDS = 3;     // recalculs automatiques quand OpenStreetMap rév�
 const RT_DETOUR = 1.3;       // rapport longueur réelle / longueur du cercle (les chemins serpentent)
 const RT_CANDIDATES = 10;    // boucles essayées (orientations et nombres de points différents), on garde la meilleure
 const RT_MAX_SCALE = 1.6;    // agrandissement maximal du cercle lors du calibrage (l'emprise chargée en tient compte)
-const RT_REUSE = 4;          // surcoût d'un tronçon déjà emprunté par la boucle (évite les allers-retours)
+const RT_REUSE = 30;         // surcoût d'un tronçon déjà emprunté : repris seulement s'il n'y a vraiment pas d'autre passage
 const RT_PRIV_MIN = 20;      // m en parcelle privée à partir desquels un tronçon est écarté
 const RT_CHECK_ROUNDS = 15;  // vérifications du cadastre (puis recalcul) avant l'analyse complète
 const RT_PROPS = "geometrie,nature,importance,prive,acces_vehicule_leger,sens_de_circulation";
@@ -187,7 +187,10 @@ function chainPath(g, nodes, pref) {
     for (const e of p.edges) { edges.push(e); used.add(e); }
     segs.push(...p.segs);
   }
-  return { coords, edges, segs, len: edges.reduce((a, e) => a + e.len, 0) };
+  const seen = new Set();
+  let dup = 0;
+  for (const e of edges) if (seen.has(e)) dup += e.len; else seen.add(e);
+  return { coords, edges, segs, len: edges.reduce((a, e) => a + e.len, 0), dup };
 }
 
 // Vérifie le cadastre des tronçons d'un itinéraire pas encore contrôlés et écarte ceux qui traversent
@@ -282,10 +285,14 @@ function planLoop(g, a, target, pref, seed) {
   const mask = mainComponent(g, rt.avoid);
   const start = nearestNode(g, a, rt.avoid, mask).i;
   if (start < 0) return null;
-  const score = (l) => (pref ? dirtShare(l.path) : 0) - 2 * Math.abs(l.path.len / target - 1);
+  // points de passage sur des croisements (3 voies autorisées ou plus), jamais au fond d'une impasse
+  // où la boucle entrerait et ressortirait par le même chemin
+  const cross = mask.map((m, i) => (m && new Set(g.adj[i].filter((s) => !s.e.ban && !rt.avoid.has(s.e)).map((s) => s.e)).size >= 3 ? 1 : 0));
+  // le plus de chemins, la bonne distance, et pas d'aller-retour sur un même bout
+  const score = (l) => (pref ? dirtShare(l.path) : 0) - 2 * Math.abs(l.path.len / target - 1) - 3 * l.path.dup / l.path.len;
   let best = null;
   for (let i = 0; i < RT_CANDIDATES; i++) {
-    const l = loopCandidate(g, start, a, mask, target, pref, seed + (2 * Math.PI * i) / RT_CANDIDATES, 4 + (i % 2));
+    const l = loopCandidate(g, start, a, cross, target, pref, seed + (2 * Math.PI * i) / RT_CANDIDATES, 4 + (i % 2));
     if (l && (!best || score(l) > score(best))) best = l;
   }
   return best;
