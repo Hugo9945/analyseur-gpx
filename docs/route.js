@@ -498,6 +498,8 @@ async function rtRun(round = 0) {
   const { a, b } = rt, loop = rt.mode === "loop", pref = +$("rt-pref").value;
   let chained = false; // un contournement prend le relais : les boutons restent bloqués
   rt.busy = true;
+  // la carte des chemins publics s'efface pour laisser lire l'itinéraire (ses verdicts restent acquis)
+  if (rt.scan) { rt.scan = null; rtShowScan(); }
   rtDraw();
   try {
     let g, compute;
