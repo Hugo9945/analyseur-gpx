@@ -6,8 +6,9 @@ const RT_TILE = 0.05;        // degrés : taille des tuiles téléchargées
 const RT_MAX_KM = 80;        // distance à vol d'oiseau maximale entre A et B
 const RT_AUTO_ROUNDS = 3;    // contournements automatiques des points d'attention IGN / cadastre
 const RT_OSM_ROUNDS = 3;     // recalculs automatiques quand OpenStreetMap révèle de nouvelles interdictions
-const RT_LOOP_WPS = 4;       // points de la boucle, départ compris, répartis sur un cercle
 const RT_DETOUR = 1.3;       // rapport longueur réelle / longueur du cercle (les chemins serpentent)
+const RT_CANDIDATES = 10;    // boucles essayées (orientations et nombres de points différents), on garde la meilleure
+const RT_MAX_SCALE = 1.6;    // agrandissement maximal du cercle lors du calibrage (l'emprise chargée en tient compte)
 const RT_REUSE = 4;          // surcoût d'un tronçon déjà emprunté par la boucle (évite les allers-retours)
 const RT_PRIV_MIN = 20;      // m en parcelle privée à partir desquels un tronçon est écarté
 const RT_CHECK_ROUNDS = 15;  // vérifications du cadastre (puis recalcul) avant l'analyse complète
@@ -233,31 +234,66 @@ function offset(p, d, ang) {
   return [p[0] + (d * Math.sin(ang)) / (111320 * Math.cos(p[1] * rad)), p[1] + (d * Math.cos(ang)) / 111320];
 }
 
-// Boucle : un cercle passant par A, orienté selon theta, dont les points sont recalés sur le réseau autorisé.
-// La longueur obtenue est comparée à la cible et le rayon corrigé (quelques essais), on garde la plus proche.
-function planLoop(g, a, target, pref, theta) {
-  const start = nearestNode(g, a, rt.avoid).i;
-  if (start < 0) return null;
-  // les points de passage sont recalés sur des voies reliées au départ (pas sur un bout de réseau isolé)
-  const mask = reachable(g, start, rt.avoid);
+// Composante principale du réseau autorisé (en ignorant les sens uniques) : marque les nœuds qui en font partie,
+// pour ne jamais partir d'un îlot de voies autorisées cerné de chemins privés
+function mainComponent(g, avoid) {
+  const label = new Int32Array(g.xy.length).fill(-1), stack = [];
+  let best = -1, bestSize = 0;
+  for (let i = 0; i < g.xy.length; i++) {
+    if (label[i] >= 0) continue;
+    let size = 0;
+    label[i] = i; stack.push(i);
+    while (stack.length) {
+      const u = stack.pop();
+      size++;
+      for (const s of g.adj[u]) {
+        if (s.e.ban || avoid.has(s.e)) continue;
+        for (const v of [s.e.a, s.e.b]) if (label[v] < 0) { label[v] = i; stack.push(v); }
+      }
+    }
+    if (size > bestSize) { best = i; bestSize = size; }
+  }
+  return Uint8Array.from(label, (l) => (l === best ? 1 : 0));
+}
+
+const dirtShare = (p) => p.edges.reduce((a, e) => a + (["Chemin", "Route empierrée"].includes(e.f.properties.nature) ? e.len : 0), 0) / p.len;
+
+// Une boucle : cercle passant par A, orienté selon theta, avec n points recalés sur le réseau ;
+// le rayon est corrigé jusqu'à ce que la longueur réelle soit à 7 % de la cible.
+function loopCandidate(g, start, a, mask, target, pref, theta, n) {
   let scale = 1, best = null;
-  for (let k = 0; k < 4; k++) {
+  for (let k = 0; k < 7; k++) {
     const r = (scale * target) / (2 * Math.PI * RT_DETOUR), c = offset(a, r, theta);
     const nodes = [start];
-    for (let i = 1; i < RT_LOOP_WPS; i++) nodes.push(nearestNode(g, offset(c, r, theta + Math.PI + (2 * Math.PI * i) / RT_LOOP_WPS), rt.avoid, mask).i);
+    for (let i = 1; i < n; i++) nodes.push(nearestNode(g, offset(c, r, theta + Math.PI + (2 * Math.PI * i) / n), rt.avoid, mask).i);
     nodes.push(start);
-    const path = nodes.includes(-1) ? null : chainPath(g, nodes, pref);
-    if (!path) { theta += 0.6; continue; }
-    if (!best || Math.abs(path.len - target) < Math.abs(best.path.len - target)) best = { nodes, path };
-    if (Math.abs(path.len / target - 1) < 0.1) break;
-    scale = Math.min(1.6, Math.max(0.4, scale * target / path.len));
+    const path = chainPath(g, nodes, pref);
+    if (!path) break;
+    if (!best || Math.abs(path.len - target) < Math.abs(best.path.len - target)) best = { path, theta, n };
+    if (Math.abs(path.len / target - 1) < 0.07) break;
+    scale = Math.min(RT_MAX_SCALE, Math.max(0.3, scale * target / path.len));
+  }
+  return best;
+}
+
+// Choisit la boucle qui a le plus de chemins à la bonne distance parmi RT_CANDIDATES orientations.
+// Le choix est refait à chaque contrôle du cadastre : une boucle qui perd ses chemins privés peut être détrônée.
+function planLoop(g, a, target, pref, seed) {
+  const mask = mainComponent(g, rt.avoid);
+  const start = nearestNode(g, a, rt.avoid, mask).i;
+  if (start < 0) return null;
+  const score = (l) => (pref ? dirtShare(l.path) : 0) - 2 * Math.abs(l.path.len / target - 1);
+  let best = null;
+  for (let i = 0; i < RT_CANDIDATES; i++) {
+    const l = loopCandidate(g, start, a, mask, target, pref, seed + (2 * Math.PI * i) / RT_CANDIDATES, 4 + (i % 2));
+    if (l && (!best || score(l) > score(best))) best = l;
   }
   return best;
 }
 
 // ---------- Interface ----------
 const rt = { mode: "ab", a: null, b: null, pick: null, net: null, netBox: null, avoid: new Set(), osmRounds: 0,
-  loop: null, theta: Math.random() * 2 * Math.PI, trace: null, markers: L.layerGroup().addTo(map) };
+  loop: null, via: null, seed: Math.random() * 2 * Math.PI, trace: null, markers: L.layerGroup().addTo(map) };
 
 function rtDraw() {
   rt.markers.clearLayers();
@@ -273,7 +309,7 @@ function rtDraw() {
   $("rt-go").disabled = rt.busy || !(rt.a && (loop || rt.b));
   $("rt-again").disabled = $("rt-avoid").disabled = rt.busy;
   $("rt-go").textContent = loop ? "Calculer la boucle" : "Calculer l'itinéraire";
-  $("rt-again").hidden = !(loop && rt.trace && traces.includes(rt.trace));
+  $("rt-again").hidden = !(rt.trace && traces.includes(rt.trace));
   $("rt-avoid").hidden = !(rt.trace && traces.includes(rt.trace));
 }
 
@@ -289,7 +325,7 @@ function rtPick(k) {
 map.on("click", (e) => {
   if (!rt.pick) return;
   rt[rt.pick] = [e.latlng.lng, e.latlng.lat];
-  rt.net = null; rt.avoid.clear(); rt.loop = null; // nouvelle emprise : le réseau sera rechargé
+  rt.net = null; rt.avoid.clear(); rt.loop = rt.via = null; // nouvelle emprise : le réseau sera rechargé
   rt.pick = null;
   $("map").classList.remove("picking");
   hint("");
@@ -330,9 +366,9 @@ async function rtRun(round = 0) {
     if (loop) {
       const target = +$("rt-km").value * 1000;
       // le cercle peut grandir jusqu'à 1,6 fois son rayon de départ lors du calibrage
-      g = await ensureNet(boxAround([a], (1.6 * 2 * target) / (2 * Math.PI * RT_DETOUR) + 2000));
+      g = await ensureNet(boxAround([a], (RT_MAX_SCALE * 2 * target) / (2 * Math.PI * RT_DETOUR) + 2000));
       compute = () => {
-        rt.loop = planLoop(g, a, target, pref, rt.theta);
+        rt.loop = planLoop(g, a, target, pref, rt.seed);
         if (!rt.loop) throw new Error("aucune boucle autorisée trouvée autour de A");
         return rt.loop.path;
       };
@@ -341,9 +377,12 @@ async function rtRun(round = 0) {
       if (km > RT_MAX_KM) throw new Error(`A et B sont à ${Math.round(km)} km à vol d'oiseau : maximum ${RT_MAX_KM} km pour l'instant.`);
       g = await ensureNet(boxAround([a, b], Math.max(2000, km * 1000 * 0.25)));
       compute = () => {
-        const s = nearestNode(g, a, rt.avoid), t = s.i < 0 ? s : nearestNode(g, b, rt.avoid, reachable(g, s.i, rt.avoid));
+        const mask = mainComponent(g, rt.avoid);
+        const s = nearestNode(g, a, rt.avoid, mask), t = nearestNode(g, b, rt.avoid, mask);
         if (s.i < 0 || t.i < 0) throw new Error("aucune voie autorisée près de A ou de B");
-        const p = chainPath(g, [s.i, t.i], pref);
+        // « nouvelle trace » : un point de passage tiré au hasard de part et d'autre de la ligne A-B
+        const via = rt.via && nearestNode(g, offset(offset(a, rt.via.along * km * 1000, rt.via.bearing), rt.via.side * km * 1000, rt.via.bearing + Math.PI / 2), rt.avoid, mask).i;
+        const p = chainPath(g, via >= 0 && via != null ? [s.i, via, t.i] : [s.i, t.i], pref);
         if (!p) throw new Error("aucun itinéraire autorisé ne relie A et B");
         return p;
       };
@@ -417,10 +456,19 @@ $("rt-a").addEventListener("click", () => rtPick("a"));
 $("rt-b").addEventListener("click", () => rtPick("b"));
 // la sélection d'une section annule le placement de A ou B
 $("sec-pick").addEventListener("click", () => { if (rt.pick) { rt.pick = null; rtDraw(); } });
-$("rt-go").addEventListener("click", () => { rt.avoid.clear(); rt.osmRounds = 0; rt.loop = null; rtRun(); });
+$("rt-go").addEventListener("click", () => { rt.avoid.clear(); rt.osmRounds = 0; rt.loop = rt.via = null; rtRun(); });
 // autre boucle : on tourne le cercle autour du départ
-$("rt-again").addEventListener("click", () => { rt.avoid.clear(); rt.osmRounds = 0; rt.loop = null; rt.theta += 2 * Math.PI * (0.25 + Math.random() * 0.5); rtRun(); });
-document.querySelectorAll("#rt-mode button").forEach((b) => b.addEventListener("click", () => { rt.mode = b.dataset.mode; rt.loop = null; rtDraw(); }));
+// nouvelle trace, mêmes réglages : d'autres orientations de boucle, ou un détour au hasard entre A et B
+$("rt-again").addEventListener("click", () => {
+  rt.avoid.clear(); rt.osmRounds = 0; rt.loop = null;
+  rt.seed += Math.PI / RT_CANDIDATES + Math.random() * 2 * Math.PI;
+  if (rt.a && rt.b) {
+    const bearing = Math.atan2((rt.b[0] - rt.a[0]) * Math.cos(rt.a[1] * rad), rt.b[1] - rt.a[1]);
+    rt.via = { bearing, along: 0.3 + Math.random() * 0.4, side: (Math.random() < 0.5 ? -1 : 1) * (0.15 + Math.random() * 0.25) };
+  }
+  rtRun();
+});
+document.querySelectorAll("#rt-mode button").forEach((b) => b.addEventListener("click", () => { rt.mode = b.dataset.mode; rt.loop = rt.via = null; rtDraw(); }));
 $("rt-strict").addEventListener("change", () => {
   for (const e of rt.net ? rt.net.edges : []) { e.checked = false; if (e.ban === "parcelle privée") e.ban = null; }
 });
