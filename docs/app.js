@@ -11,7 +11,8 @@ const STEP = 10;          // m entre deux points d'échantillonnage
 const ROAD_TOL = 15;      // m : distance max pour rattacher un point à un tronçon BD TOPO / OSM
 const CHUNK = 120;        // sommets par requête WFS (limite la longueur d'URL)
 const MIN_VERIF = 20;     // m : longueur min d'un point d'attention
-const EDGE_TOL = 4;       // m : en deçà, un point privé est « en limite de parcelle » (décalage cadastre / BD TOPO)
+const EDGE_TOL = 8;       // m : en deçà, un point privé est « en limite de parcelle » (décalage cadastre / BD TOPO,
+                          // souvent 5 à 10 m sur les chemins creux entre deux parcelles)
 const SLOPE_WIN = 25;     // m de part et d'autre pour calculer la pente
 
 const VOIE = [
@@ -33,7 +34,7 @@ const SURF = [
 const FONC = [
   { key: "public",      label: "Personne publique (commune, État…)",   color: "--s1" },
   { key: "noncad",      label: "Non cadastré (voirie, domaine public)", color: "--s3" },
-  { key: "limite",      label: "En limite de parcelle privée (±4 m)",  color: "--s5" },
+  { key: "limite",      label: "En limite de parcelle privée (±8 m)",  color: "--s5" },
   { key: "pmprivee",    label: "Personne morale privée (SCI, GFA…)",   color: "--s4" },
   { key: "particulier", label: "Particulier (probable)",               color: "--s8" },
   { key: "inconnu",     label: "Propriétaire inconnu",                 color: "--neutral" },
