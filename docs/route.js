@@ -12,6 +12,7 @@ const RT_LEG = 10000;        // m de boucle par secteur de chemins visé (au moi
 const RT_MAX_ROAD = 0.4;     // part de route au-delà de laquelle une boucle est nettement pénalisée
 const RT_SECTOR_MIN = 1500;  // m : longueur minimale d'un secteur de chemins visé par une boucle
 const RT_MAX_SCALE = 1.6;    // agrandissement maximal du cercle lors du calibrage (l'emprise chargée en tient compte)
+const RT_DUP_MAX = 150;      // m repris au-delà desquels une boucle est écartée si une autre existe (aller-retour)
 const RT_REUSE = 30;         // surcoût par mètre d'un tronçon déjà emprunté (l'équivalent de 30 m de chemin) : pas d'aller-retour
                              // tant qu'un autre passage existe, mais pas non plus de détour de dizaines de km pour l'éviter
 const RT_SCAN_KM = 10;       // rayon de la carte des chemins publics autour de A
@@ -222,6 +223,7 @@ function saveGpx(name, lines) {
 // blocks[i] : ensembles de tronçons à ne pas emprunter pour atteindre nodes[i], si un autre passage existe.
 function chainPath(g, nodes, pref, blocks = []) {
   const used = new Set(), coords = [], edges = [];
+  let first = null, lastFrom = 0; // tronçons de la première étape, début de la dernière
   for (let i = 1; i < nodes.length; i++) {
     let p = shortestPath(g, nodes[i - 1], nodes[i], pref, rt.avoid, used);
     if (!p) return null;
@@ -229,12 +231,20 @@ function chainPath(g, nodes, pref, blocks = []) {
     const blk = blocks[i];
     if (blk && blk.length) p = shortestPath(g, nodes[i - 1], nodes[i], pref, { has: (e) => rt.avoid.has(e) || blk.some((b) => b.has(e)) }, used, 3 * p.cost) || p;
     coords.push(...(coords.length ? p.coords.slice(1) : p.coords));
+    if (i === nodes.length - 1) lastFrom = edges.length;
     for (const e of p.edges) { edges.push(e); used.add(e); }
+    if (i === 1) first = new Set(p.edges);
   }
   const seen = new Set();
-  let dup = 0;
+  let dup = 0, stem = 0;
   for (const e of edges) if (seen.has(e)) dup += e.len; else seen.add(e);
-  return { coords, edges, len: edges.reduce((a, e) => a + e.len, 0), dup };
+  // départ au fond d'une impasse : ce que la dernière étape reprend de la première près de A est inévitable
+  // (limité au premier kilomètre autour du départ : au-delà, c'est un vrai aller-retour)
+  if (nodes.length > 2 && nodes[0] === nodes.at(-1)) for (let k = lastFrom; k < edges.length; k++) {
+    const e = edges[k];
+    if (first.has(e) && dist(e.mid, g.xy[nodes[0]]) < 1000) stem += e.len;
+  }
+  return { coords, edges, len: edges.reduce((a, e) => a + e.len, 0), dup: dup - stem };
 }
 
 // Vérifie le cadastre de tronçons pas encore contrôlés et écarte ceux qui traversent une parcelle privée.
@@ -410,12 +420,12 @@ function planLoop(g, a, target, pref, seed, prev) {
   const cross = deg.map((d) => (d >= 3 ? 1 : 0));
   const gate = deg.map((d, i) => (d && g.adj[i].some((s) => !s.e.ban && !rt.avoid.has(s.e) && !isDirt(s.e)) ? 1 : 0));
   const sectors = pref ? dirtSectors(g, deg.map((d) => (d >= 2 ? 1 : 0)), gate) : [];
-  // la boucle réparée est gardée tant qu'elle reste à 10 % de la distance visée
+  // la boucle réparée est gardée tant qu'elle reste à 10 % de la distance visée, sans aller-retour
   const fixed = prev && loopCandidate(g, start, a, sectors, cross, target, pref, prev.theta, prev.n, prev.scale);
-  if (fixed && Math.abs(fixed.path.len / target - 1) <= 0.1) return fixed;
+  if (fixed && Math.abs(fixed.path.len / target - 1) <= 0.1 && fixed.path.dup < RT_DUP_MAX) return fixed;
   // le plus de chemins (et pas plus de RT_MAX_ROAD de route), la bonne distance, pas d'aller-retour sur un même bout
   const score = (l, d = dirtExpected(l.path)) => (pref ? d - 3 * Math.max(0, 1 - d - RT_MAX_ROAD) : 0)
-    - 2 * Math.abs(l.path.len / target - 1) - 8 * Math.max(0, Math.abs(l.path.len / target - 1) - 0.1) - 10 * l.path.dup / l.path.len;
+    - 2 * Math.abs(l.path.len / target - 1) - 8 * Math.max(0, Math.abs(l.path.len / target - 1) - 0.1) - 10 * l.path.dup / l.path.len - (l.path.dup >= RT_DUP_MAX ? 1 : 0);
   const n = Math.max(4, Math.round(target / RT_LEG));
   let best = fixed || null;
   for (let i = 0; i < RT_CANDIDATES; i++) {
