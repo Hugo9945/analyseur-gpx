@@ -403,10 +403,24 @@ function parcelCat(f, owners) {
   return o.some((x) => PUBLIC_GROUPS.has(x.groupe)) ? "public" : "pmprivee";
 }
 
-function foncCat(s, owners) {
+// Point privé à moins de EDGE_TOL m d'une limite : ce n'est un chemin rural mal calé que si une bande non
+// cadastrée (ou une parcelle publique) le longe. On la cherche perpendiculairement au chemin (sens a → b),
+// de part et d'autre, jusqu'à EDGE_TOL m. Deux parcelles privées jointives de chaque côté : chemin privé.
+function gapBeside(p, a, b, inParcel, owners) {
+  const k = Math.cos(p[1] * rad), dx = (b[0] - a[0]) * k, dy = b[1] - a[1], n = Math.hypot(dx, dy);
+  const dirs = n ? [[-dy / n, dx / n]] : [[1, 0], [0, 1]];
+  for (const [ux, uy] of dirs) for (let d = 2; d <= EDGE_TOL; d += 2) for (const sg of [1, -1]) {
+    const f = inParcel([p[0] + (sg * d * ux) / (111320 * k), p[1] + (sg * d * uy) / 111320]);
+    if (!f || parcelCat(f, owners) === "public") return true;
+  }
+  return false;
+}
+
+function foncCat(s, owners, a, b, inParcel) {
   if (!s.parcel) return "noncad";
   const c = parcelCat(s.parcel, owners);
-  return (c === "particulier" || c === "pmprivee") && boundaryDist(s.snap, s.parcel) < EDGE_TOL ? "limite" : c;
+  return (c === "particulier" || c === "pmprivee") && boundaryDist(s.snap, s.parcel) < EDGE_TOL
+    && gapBeside(s.snap, a, b, inParcel, owners) ? "limite" : c;
 }
 
 function motoReasons(s) {
@@ -526,7 +540,10 @@ async function analyseTrace(file, progress) {
     notes.push("Propriétaires non chargés (fichier du département indisponible).");
   }
 
-  for (const s of samples) s.fonc = foncCat(s, owners);
+  samples.forEach((s, i) => {
+    const a = samples[Math.max(0, i - 1)].snap, b = samples[Math.min(samples.length - 1, i + 1)].snap;
+    s.fonc = foncCat(s, owners, a, b, inParcel);
+  });
 
   const res = { name: file.name.replace(/\.gpx$/i, ""), lines, samples, total, elev: slopes(samples), owners,
     ...crossings(samples, owners), notes, osm: "pending", osmCtl };

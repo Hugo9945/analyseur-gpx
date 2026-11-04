@@ -275,14 +275,17 @@ async function checkEdges(list, strict, progress = () => {}) {
   for (const e of todo) {
     // why : longueur par catégorie (noncad, public, limite, prive) et parcelle la plus parcourue de la catégorie
     // retenue, pour expliquer le verdict sur la carte des chemins publics
-    const m = { noncad: 0, public: 0, limite: 0, prive: 0 }, top = {};
+    const m = { noncad: 0, public: 0, limite: 0, prive: 0, joint: 0 }, top = {};
     for (let j = 1; j < e.coords.length; j++) {
       const a = e.coords[j - 1], b = e.coords[j], d = dist(a, b), k = Math.max(1, Math.ceil(d / STEP));
       for (let i = 0; i < k; i++) {
         const t = (i + 0.5) / k, p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], f = inParcel(p);
         let c = f ? parcelCat(f, owners) : "noncad";
-        if (c === "particulier" || c === "pmprivee") c = strict || boundaryDist(p, f) >= EDGE_TOL ? "prive" : "limite";
-        else if (c !== "noncad") c = "public";
+        if (c === "particulier" || c === "pmprivee") {
+          const near = !strict && boundaryDist(p, f) < EDGE_TOL;
+          c = near && gapBeside(p, a, b, inParcel, owners) ? "limite" : "prive";
+          if (near && c === "prive") m.joint += d / k; // le long d'une limite entre parcelles privées jointives
+        } else if (c !== "noncad") c = "public";
         m[c] += d / k;
         if (f) ((top[c] ||= new Map()).set(f, (top[c].get(f) || 0) + d / k));
       }
@@ -679,14 +682,16 @@ function cpPopup(ev) {
   const head = `<b>${esc(e.f.properties.nature)}</b> ${muted(m(e.len))}<br>`, tag = (t, c) => `<b style="color:${css(c)}">${t}</b>`;
   let body;
   if (e.ban === "parcelle privée")
-    body = `${tag("Privé", "--s8")} : traverse une parcelle privée sur ${m(w.m.prive)}<br>` + (w.f ? parcelPopup(w.f, owners) : "");
+    body = `${tag("Privé", "--s8")} : ` + (w.m.joint > w.m.prive / 2
+      ? `suit sur ${m(w.m.prive)} la limite entre parcelles privées, sans bande non cadastrée à côté : sans doute un chemin d'exploitation privé.<br>`
+      : `traverse une parcelle privée sur ${m(w.m.prive)}<br>`) + (w.f ? parcelPopup(w.f, owners) : "");
   else if (e.ban)
     body = `${tag("Interdit", "--s8")} : ` + (e.ban.startsWith("OSM ") ? `interdit dans OpenStreetMap (${esc(e.ban.slice(4))})` : esc(RT_BAN_TEXT[e.ban] || e.ban));
   else if (!e.checked) body = `${tag("Non vérifié", "--neutral")} : le cadastre n'a pas répondu pour ce chemin.`;
   else body = `${tag("Public", "--s3")} : ` + ({
     noncad: "hors parcelle cadastrée (voie publique).",
     public: "sur une parcelle publique :<br>" + (w.f ? parcelPopup(w.f, owners) : ""),
-    limite: `en limite de parcelle privée (à moins de ${EDGE_TOL} m) : sans doute un chemin entre deux parcelles, mal calé sur le cadastre.`,
+    limite: `en limite de parcelle privée (à moins de ${EDGE_TOL} m), le long d'une bande non cadastrée : sans doute un chemin rural mal calé sur le cadastre.`,
   }[w.main] || "pas de parcelle privée traversée.") + `<br>${muted("Vérifie quand même la signalisation sur place.")}`;
   L.popup().setLatLng(ev.latlng).setContent(head + body).openOn(map);
 }
