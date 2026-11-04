@@ -35,6 +35,7 @@ const FONC = [
   { key: "public",      label: "Personne publique (commune, État…)",   color: "--s1" },
   { key: "noncad",      label: "Non cadastré (voirie, domaine public)", color: "--s3" },
   { key: "limite",      label: "En limite de parcelle privée (±8 m)",  color: "--s5" },
+  { key: "exploit",     label: "Chemin d'exploitation (ouvert sauf panneau)", color: "--s2" },
   { key: "pmprivee",    label: "Personne morale privée (SCI, GFA…)",   color: "--s4" },
   { key: "particulier", label: "Particulier (probable)",               color: "--s8" },
   { key: "inconnu",     label: "Propriétaire inconnu",                 color: "--neutral" },
@@ -416,9 +417,23 @@ function gapBeside(p, a, b, inParcel, owners) {
   return false;
 }
 
+// Parcelle privée qui sert elle-même de chemin (chemin d'exploitation, Code rural L162-1) : propriétaire
+// au nom de « … CHEMIN … » (indivisaires), ou bande étroite (largeur moyenne 2 × surface / périmètre
+// d'au plus 10 m, sur au moins 40 m de long)
+function exploitParcel(f, owners) {
+  if (f._expl != null) return f._expl;
+  const o = owners && owners[f.properties.idu];
+  if (o && o.some((x) => /\bCHEMINS?\b/i.test(x.denomination || ""))) return (f._expl = true);
+  const polys = f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates;
+  let per = 0;
+  for (const poly of polys) for (let i = 1; i < poly[0].length; i++) per += dist(poly[0][i - 1], poly[0][i]);
+  return (f._expl = per >= 80 && (2 * turf.area(f)) / per <= 10);
+}
+
 function foncCat(s, owners, a, b, inParcel) {
   if (!s.parcel) return "noncad";
   const c = parcelCat(s.parcel, owners);
+  if ((c === "particulier" || c === "pmprivee") && exploitParcel(s.parcel, owners)) return "exploit";
   return (c === "particulier" || c === "pmprivee") && boundaryDist(s.snap, s.parcel) < EDGE_TOL
     && gapBeside(s.snap, a, b, inParcel, owners) ? "limite" : c;
 }

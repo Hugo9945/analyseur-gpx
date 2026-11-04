@@ -15,6 +15,7 @@ const RT_DUP_MAX = 150;      // m repris au-delà desquels une boucle est écart
 const RT_REUSE = 30;         // surcoût par mètre d'un tronçon déjà emprunté (l'équivalent de 30 m de chemin) : pas d'aller-retour
                              // tant qu'un autre passage existe, mais pas non plus de détour de dizaines de km pour l'éviter
 const RT_PRIV_MIN = 20;      // m en parcelle privée à partir desquels un tronçon est écarté
+const RT_EXPL = "chemin d'exploitation"; // tronçon sur la parcelle d'un chemin d'exploitation, écarté sauf case cochée
 const RT_CHECK_ROUNDS = 20;  // vérifications du cadastre (puis recalcul) avant l'analyse complète
 const RT_EXPLORE = 8;        // premières vérifications où une boucle peut encore en remplacer une autre ; ensuite on la répare
 const RT_PROPS = "geometrie,nature,importance,prive,acces_vehicule_leger,sens_de_circulation,cpx_nature_itineraire_autre,nom_voie_ban_gauche,nom_collaboratif_gauche";
@@ -115,7 +116,10 @@ function buildGraph(feats, zones) {
     const mid = part[part.length >> 1];
     const e = { f, coords: part, len, mid, ban: rtBan(f.properties, inZone, mid), kind: rtKind(f.properties) };
     const v = rt.verdict.get(edgeKey(e));
-    if (v) { e.checked = true; e.ban = e.ban || v.ban; e.why = v.why; }
+    if (v) {
+      e.checked = true; e.ban = e.ban || v.ban; e.why = v.why; e.expl = v.expl;
+      if (e.expl && !e.ban && !$("rt-expl").checked) e.ban = RT_EXPL;
+    }
     const a = node(part[0]), b = node(part.at(-1));
     e.a = a; e.b = b;
     edges.push(e);
@@ -205,15 +209,17 @@ function shortestPath(g, from, to, pref, avoid, used = new Set(), maxCost = Infi
   return { coords, edges: steps.map((s) => s.e), segs, cost: cost[to] };
 }
 
-function toGpx(name, lines) {
+// extra : autres traces du fichier, { nom: lignes } (les vides sont omises)
+function toGpx(name, lines, extra = {}) {
   const pt = (p) => `<trkpt lat="${p[1].toFixed(6)}" lon="${p[0].toFixed(6)}"${p[2] != null ? `><ele>${p[2].toFixed(1)}</ele></trkpt>` : "/>"}`;
+  const trk = ([n, ls]) => `<trk><name>${esc(n)}</name>${ls.map((l) => `<trkseg>${l.map(pt).join("")}</trkseg>`).join("")}</trk>\n`;
   return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Analyseur de traces GPX" xmlns="http://www.topografix.com/GPX/1/1">\n` +
-    `<trk><name>${esc(name)}</name>${lines.map((l) => `<trkseg>${l.map(pt).join("")}</trkseg>`).join("")}</trk>\n</gpx>\n`;
+    [[name, lines], ...Object.entries(extra).filter(([, ls]) => ls.length)].map(trk).join("") + `</gpx>\n`;
 }
 
-function saveGpx(name, lines) {
+function saveGpx(name, lines, extra) {
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([toGpx(name, lines)], { type: "application/gpx+xml" }));
+  a.href = URL.createObjectURL(new Blob([toGpx(name, lines, extra)], { type: "application/gpx+xml" }));
   a.download = `${name}.gpx`; a.click();
 }
 
@@ -275,13 +281,14 @@ async function checkEdges(list, strict, progress = () => {}) {
   for (const e of todo) {
     // why : longueur par catégorie (noncad, public, limite, prive) et parcelle la plus parcourue de la catégorie
     // retenue, pour expliquer le verdict sur la carte des chemins publics
-    const m = { noncad: 0, public: 0, limite: 0, prive: 0, joint: 0 }, top = {};
+    const m = { noncad: 0, public: 0, limite: 0, prive: 0, joint: 0, exploit: 0 }, top = {};
     for (let j = 1; j < e.coords.length; j++) {
       const a = e.coords[j - 1], b = e.coords[j], d = dist(a, b), k = Math.max(1, Math.ceil(d / STEP));
       for (let i = 0; i < k; i++) {
         const t = (i + 0.5) / k, p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], f = inParcel(p);
         let c = f ? parcelCat(f, owners) : "noncad";
-        if (c === "particulier" || c === "pmprivee") {
+        if ((c === "particulier" || c === "pmprivee") && exploitParcel(f, owners)) c = "exploit";
+        else if (c === "particulier" || c === "pmprivee") {
           const near = !strict && boundaryDist(p, f) < EDGE_TOL;
           c = near && gapBeside(p, a, b, inParcel, owners) ? "limite" : "prive";
           if (near && c === "prive") m.joint += d / k; // le long d'une limite entre parcelles privées jointives
@@ -291,11 +298,21 @@ async function checkEdges(list, strict, progress = () => {}) {
       }
     }
     const priv = m.prive;
-    if (priv >= RT_PRIV_MIN || priv > e.len / 2) { e.ban = "parcelle privée"; n++; }
-    const main = e.ban ? "prive" : ["public", "limite", "noncad"].reduce((x, y) => (m[y] > m[x] ? y : x));
+    // surtout sur la parcelle d'un chemin d'exploitation : ses bouts « en limite » sans bande non cadastrée
+    // (carrefours, décalages) comptent avec elle ; une vraie traversée de parcelle privée l'écarte quand même
+    const expl = (m.exploit >= RT_PRIV_MIN || m.exploit > e.len / 2) && m.exploit >= priv && priv - m.joint < RT_PRIV_MIN;
+    if (!expl && (priv >= RT_PRIV_MIN || priv > e.len / 2)) { e.ban = "parcelle privée"; n++; }
+    else if (expl) {
+      e.expl = true;
+      if (!$("rt-expl").checked) { e.ban = RT_EXPL; n++; }
+    }
+    const main = e.ban === "parcelle privée" ? "prive" : e.expl ? "exploit" : ["public", "limite", "noncad"].reduce((x, y) => (m[y] > m[x] ? y : x));
     const f = top[main] && [...top[main]].sort((x, y) => y[1] - x[1])[0][0];
     e.why = { m, main, f, o: f && owners[f.properties.idu] };
-    if (e.ban || !lost.has(e)) { e.checked = true; rt.verdict.set(edgeKey(e), { ban: e.ban, why: e.why }); }
+    if (e.ban || !lost.has(e)) {
+      e.checked = true;
+      rt.verdict.set(edgeKey(e), { ban: e.ban === RT_EXPL ? null : e.ban, expl: e.expl, why: e.why });
+    }
   }
   rtLearnRates(rt.net);
   return { n, failed: lost.size > 0 };
@@ -626,7 +643,10 @@ async function rtScan() {
 }
 
 // Chemins publics vérifiés dans le rayon de la carte
-const scanPublic = () => rt.net.edges.filter((e) => isDirt(e) && !e.ban && e.checked && dist(e.mid, rt.scan.a) <= rt.scan.r);
+const scanPublic = (expl = false) => rt.net.edges.filter((e) => isDirt(e) && e.checked && !!e.expl === expl
+  && (!e.ban || (expl && e.ban === RT_EXPL)) && dist(e.mid, rt.scan.a) <= rt.scan.r);
+// chemin d'exploitation (orange), autorisé ou non pour le générateur
+const isExpl = (e) => e.expl && (!e.ban || e.ban === RT_EXPL);
 
 function rtShowScan(fit) {
   rt.scanLayer.clearLayers();
@@ -634,19 +654,19 @@ function rtShowScan(fit) {
   $("cp-info").hidden = $("cp-gpx").hidden = !rt.scan;
   if (!rt.scan) return;
   const grid = (rt.scanGrid = new Grid(0.003)); // pour retrouver le chemin touché sur la carte
-  const { a, r, reach } = rt.scan, km = { pub: 0, priv: 0, todo: 0, road: 0 }, lines = { pub: [], priv: [], todo: [] };
+  const { a, r, reach } = rt.scan, km = { pub: 0, priv: 0, todo: 0, road: 0, expl: 0 }, lines = { pub: [], priv: [], todo: [], expl: [] };
   for (const e of rt.net.edges) {
     const d = dist(e.mid, a);
     if (d > reach) continue;
     if (!isDirt(e)) { if (!e.ban) km.road += e.len; continue; }
-    const k = !e.ban ? (e.checked ? "pub" : "todo") : "priv";
+    const k = isExpl(e) ? "expl" : !e.ban ? (e.checked ? "pub" : "todo") : "priv";
     km[k] += e.len;
     lines[k].push(e.coords.map((c) => [c[1], c[0]]));
     const xs = e.coords.map((c) => c[0]), ys = e.coords.map((c) => c[1]);
     grid.add([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], e);
   }
   // une polyligne multiple par catégorie : léger à dessiner
-  for (const [k, color, weight, opacity] of [["todo", "--neutral", 2, 0.5], ["priv", "--s8", 2, 0.55], ["pub", "--s3", 4, 0.95]])
+  for (const [k, color, weight, opacity] of [["todo", "--neutral", 2, 0.5], ["priv", "--s8", 2, 0.55], ["expl", "--s2", 3, 0.9], ["pub", "--s3", 4, 0.95]])
     if (lines[k].length) L.polyline(lines[k], { renderer: scanRenderer, color: css(color), weight, opacity, interactive: false }).addTo(rt.scanLayer);
   L.circle([a[1], a[0]], { radius: r, color: css("--text-muted"), weight: 1, dashArray: "4 4", fill: false, interactive: false }).addTo(rt.scanLayer);
   if (reach < r) L.circle([a[1], a[0]], { radius: reach, color: css("--accent"), weight: 1, fill: false, interactive: false }).addTo(rt.scanLayer);
@@ -654,6 +674,7 @@ function rtShowScan(fit) {
   const f = (m) => `${Math.round(m / 1000)} km`, share = km.pub / Math.max(1, km.pub + km.road);
   $("cp-info").innerHTML = (reach < r ? `Vérifié jusqu'à ${(reach / 1000).toFixed(1)} km sur ${r / 1000}${rt.scanning ? " (en cours)" : " (arrêté)"}. ` : "") +
     `À moins de ${(reach / 1000).toFixed(reach < r ? 1 : 0)} km du centre : <b>${f(km.pub)} de chemins publics</b> (en vert) pour ${f(km.road)} de routes, ` +
+    (km.expl > 500 ? `${f(km.expl)} de chemins d'exploitation (en orange) ` : "") +
     `et ${f(km.priv)} de chemins privés ou interdits (en rouge)` + (km.todo > 500 ? `, ${f(km.todo)} non vérifiés (en gris)` : "") + `. ` +
     (share < 0.25 ? "Secteur pauvre : une boucle par ici passera surtout par la route." : share < 0.35 ? "Secteur moyen." : "Secteur favorable.") +
     " Touche un chemin pour savoir pourquoi.";
@@ -662,6 +683,7 @@ function rtShowScan(fit) {
 
 // Explication du verdict d'un chemin de la carte, au toucher (à moins de 12 pixels)
 const RT_BAN_TEXT = {
+  [RT_EXPL]: "chemin d'exploitation non autorisé",
   "voie privée": "voie privée (IGN)",
   "Restreint aux ayants droit": "accès réservé aux ayants droit (IGN)",
   "Physiquement impossible": "impraticable (IGN)",
@@ -681,7 +703,13 @@ function cpPopup(ev) {
   const e = best, w = e.why, m = (x) => `${Math.round(x)} m`, owners = w && w.o ? { [w.f.properties.idu]: w.o } : {};
   const head = `<b>${esc(e.f.properties.nature)}</b> ${muted(m(e.len))}<br>`, tag = (t, c) => `<b style="color:${css(c)}">${t}</b>`;
   let body;
-  if (e.ban === "parcelle privée")
+  if (isExpl(e))
+    body = `${tag("Chemin d'exploitation", "--s2")} : sur ${m(w.m.exploit)}, le chemin a sa propre parcelle privée ` +
+      `(propriétaires riverains en indivision, ou bande étroite cadastrée à part). Les propriétaires peuvent en interdire ` +
+      `l'accès (Code rural, art. L162-1) : ouvert sauf panneau ou barrière.<br>` +
+      muted(e.ban ? "Le générateur l'évite, sauf si tu coches « Autoriser les chemins d'exploitation »." : "Le générateur peut l'utiliser (case cochée).") +
+      "<br>" + (w.f ? parcelPopup(w.f, owners) : "");
+  else if (e.ban === "parcelle privée")
     body = `${tag("Privé", "--s8")} : ` + (w.m.joint > w.m.prive / 2
       ? `suit sur ${m(w.m.prive)} la limite entre parcelles privées, sans bande non cadastrée à côté : sans doute un chemin d'exploitation privé.<br>`
       : `traverse une parcelle privée sur ${m(w.m.prive)}<br>`) + (w.f ? parcelPopup(w.f, owners) : "");
@@ -781,7 +809,16 @@ $("rt-strict").addEventListener("change", () => {
   rt.verdict.clear();
   rt.scan = null; rtShowScan(); rtDraw(); // la carte des chemins publics dépend de ce réglage
   if (rt.net) rt.net.rates = null;
-  for (const e of rt.net ? rt.net.edges : []) { e.checked = false; if (e.ban === "parcelle privée") e.ban = null; }
+  for (const e of rt.net ? rt.net.edges : []) { e.checked = e.expl = false; if (e.ban === "parcelle privée" || e.ban === RT_EXPL) e.ban = null; }
+});
+$("rt-expl").addEventListener("change", (ev) => {
+  for (const e of rt.net ? rt.net.edges : []) if (e.expl) {
+    if (ev.target.checked && e.ban === RT_EXPL) e.ban = null;
+    else if (!ev.target.checked && !e.ban) e.ban = RT_EXPL;
+  }
+  if (rt.net) rt.net.rates = null;
+  rt.loop = null;
+  rtShowScan(); rtDraw();
 });
 $("rt-km").addEventListener("input", (e) => { $("rt-km-v").textContent = `${e.target.value} km`; rt.loop = null; });
 $("rt-avoid").addEventListener("click", () => rtAvoid());
@@ -796,8 +833,8 @@ $("cp-gpx").addEventListener("click", () => {
     for (let i = 1; i < l.length; i++) if (i === l.length - 1 || dist(l[i], out.at(-1)) >= 25) out.push(l[i]);
     return out.map((c) => [c[0], c[1]]);
   };
-  const lines = joinEdges(scanPublic()).map(thin);
-  saveGpx(`Chemins publics ${rt.scan.r / 1000} km`, lines);
+  saveGpx(`Chemins publics ${rt.scan.r / 1000} km`, joinEdges(scanPublic()).map(thin),
+    { "Chemins d'exploitation (ouverts sauf panneau)": joinEdges(scanPublic(true)).map(thin) });
 });
 $("rt-pref").addEventListener("input", (e) => { $("rt-pref-v").textContent = e.target.value >= 0.7 ? "le plus de chemins" : e.target.value <= 0.3 ? "le plus court" : "équilibré"; });
 $("gpx-out").addEventListener("click", () => {
