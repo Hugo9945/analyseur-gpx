@@ -4,8 +4,7 @@
 
 const RT_TILE = 0.05;        // degrés : taille des tuiles téléchargées
 const RT_MAX_KM = 80;        // distance à vol d'oiseau maximale entre A et B
-const RT_AUTO_ROUNDS = 3;    // contournements automatiques des points d'attention IGN / cadastre
-const RT_OSM_ROUNDS = 3;     // recalculs automatiques quand OpenStreetMap révèle de nouvelles interdictions
+const RT_AUTO_ROUNDS = 1;    // contournement automatique des points d'attention IGN / cadastre, avant de rendre la main
 const RT_DETOUR = 1.3;       // rapport longueur réelle / longueur du cercle (les chemins serpentent)
 const RT_CANDIDATES = 16;    // boucles essayées (orientations et nombres de points différents), on garde la meilleure
 const RT_LEG = 10000;        // m de boucle par secteur de chemins visé (au moins 4) : plus la boucle est longue, plus elle zigzague
@@ -436,7 +435,7 @@ function planLoop(g, a, target, pref, seed, prev) {
 }
 
 // ---------- Interface ----------
-const rt = { mode: "ab", a: null, b: null, pick: null, net: null, netBox: null, avoid: new Set(), osmRounds: 0, verdict: new Map(),
+const rt = { mode: "ab", a: null, b: null, pick: null, net: null, netBox: null, avoid: new Set(), verdict: new Map(),
   loop: null, via: null, seed: Math.random() * 2 * Math.PI, trace: null, markers: L.layerGroup().addTo(map),
   scan: null, scanLayer: L.layerGroup().addTo(map) };
 
@@ -617,22 +616,19 @@ function rtShowScan() {
 }
 
 // OSM arrive après coup, par tuiles d'environ 1 km autour de l'itinéraire : on s'en sert pour écarter tous les
-// chemins interdits aux motos du voisinage (pas seulement ceux de l'itinéraire), puis on recalcule si besoin.
+// chemins interdits aux motos du voisinage (pas seulement ceux de l'itinéraire) dans les calculs suivants.
+// L'itinéraire affiché n'est pas recalculé tout seul (une trace qui change sans cesse est inutilisable) : ses
+// interdictions OSM s'affichent en rouge et « Éviter les points d'attention » le recalcule sans elles.
 // Seuls les chemins BD TOPO sont concernés : une route peut longer un trottoir cartographié à part dans OSM.
 function rtOsmLearn(feats) {
   const g = rt.net;
-  if (!g || rt.osmRounds >= RT_OSM_ROUNDS) return false;
+  if (!g) return false;
   const cand = g.edges.filter((e) => !e.ban && ["Chemin", "Route empierrée"].includes(e.f.properties.nature));
   matchNearest(cand.map((e) => ({ p: e.mid })), feats).forEach(([f], i) => {
     const ban = f && osmMotoBan(f.properties);
     if (ban) cand[i].ban = "OSM " + ban;
   });
-  // pendant un autre calcul (nouvelle trace, contournement), les interdictions apprises lui servent directement
-  if (rt.busy || !rt.trace.route.edges.some((e) => e.ban)) return false;
-  rt.osmRounds++;
-  status(`OpenStreetMap signale des chemins interdits : nouvel itinéraire (${rt.osmRounds}/${RT_OSM_ROUNDS})…`);
-  rtRun(1);
-  return true;
+  return false;
 }
 
 // Écarte les tronçons où l'analyse a trouvé un point d'attention (parcelle privée, interdiction OSM…) et recalcule
@@ -659,11 +655,11 @@ $("rt-a").addEventListener("click", () => rtPick("a"));
 $("rt-b").addEventListener("click", () => rtPick("b"));
 // la sélection d'une section annule le placement de A ou B
 $("sec-pick").addEventListener("click", () => { if (rt.pick) { rt.pick = null; rtDraw(); } });
-$("rt-go").addEventListener("click", () => { rt.avoid.clear(); rt.osmRounds = 0; rt.loop = rt.via = null; rtRun(); });
+$("rt-go").addEventListener("click", () => { rt.avoid.clear(); rt.loop = rt.via = null; rtRun(); });
 // autre boucle : on tourne le cercle autour du départ
 // nouvelle trace, mêmes réglages : d'autres orientations de boucle, ou un détour au hasard entre A et B
 $("rt-again").addEventListener("click", () => {
-  rt.avoid.clear(); rt.osmRounds = 0; rt.loop = null;
+  rt.avoid.clear(); rt.loop = null;
   rt.seed += Math.PI / RT_CANDIDATES + Math.random() * 2 * Math.PI;
   if (rt.a && rt.b) {
     const bearing = Math.atan2((rt.b[0] - rt.a[0]) * Math.cos(rt.a[1] * rad), rt.b[1] - rt.a[1]);

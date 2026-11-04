@@ -57,7 +57,7 @@
       <button id="rt-scan" disabled>Chemins publics à 10 km de A</button>
     </div>
     <p class="note" id="rt-scan-info" hidden></p>
-    <p class="note">Écarte les sentiers, pistes cyclables, voies privées ou réservées aux ayants droit, les chemins des réserves (IGN) et les chemins qui traversent une parcelle privée (cadastre). L'itinéraire est ensuite analysé comme une trace ; les interdictions OpenStreetMap, connues plus tard, déclenchent un recalcul automatique.</p>
+    <p class="note">Écarte les sentiers, pistes cyclables, voies privées ou réservées aux ayants droit, les chemins des réserves (IGN) et les chemins qui traversent une parcelle privée (cadastre). L'itinéraire est ensuite analysé comme une trace ; les interdictions OpenStreetMap, connues plus tard, s'affichent en rouge : « Éviter les points d'attention » recalcule sans elles.</p>
   </details>
 
   <div id="status" hidden></div>
@@ -159,6 +159,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.1.0/turf.min.js"></script>
 <script src="app.js?v=3"></script>
-<script src="route.js?v=5"></script>
+<script src="route.js?v=6"></script>
 </body>
 </html>
