@@ -54,7 +54,14 @@
       <button id="rt-go" class="primary" disabled>Calculer l'itinéraire</button>
       <button id="rt-again" hidden>↻ Nouvelle trace</button>
       <button id="rt-avoid" hidden>Éviter les points d'attention</button>
+    </div>
+    <label class="rt-pref">
+      <span>Carte des chemins publics : rayon de <b id="rt-scan-v">10 km</b></span>
+      <input type="range" id="rt-scan-km" min="5" max="30" step="5" value="10">
+    </label>
+    <div class="actions">
       <button id="rt-scan" disabled>Chemins publics à 10 km de A</button>
+      <button id="rt-scan-gpx" hidden>Exporter les chemins publics (GPX)</button>
     </div>
     <p class="note" id="rt-scan-info" hidden></p>
     <p class="note">Écarte les sentiers, pistes cyclables, voies privées ou réservées aux ayants droit, les chemins des réserves (IGN) et les chemins qui traversent une parcelle privée (cadastre). L'itinéraire est ensuite analysé comme une trace ; les interdictions OpenStreetMap, connues plus tard, s'affichent en rouge : « Éviter les points d'attention » recalcule sans elles.</p>
@@ -158,7 +165,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.1.0/turf.min.js"></script>
-<script src="app.js?v=3"></script>
-<script src="route.js?v=6"></script>
+<script src="app.js?v=4"></script>
+<script src="route.js?v=7"></script>
 </body>
 </html>

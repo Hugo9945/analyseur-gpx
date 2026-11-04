@@ -110,13 +110,19 @@ function surfCat(t, voie) {
 const BAN = new Set(["no", "private", "agricultural", "forestry", "agricultural;forestry", "forestry;agricultural",
   "delivery", "permit", "customers"]);
 // Renvoie le tag OSM qui interdit la moto, ou null
-function osmMotoBan(t) {
+// nature : nature BD TOPO du tronçon. Un « Chemin » ou une « Route empierrée » de l'IGN qu'OSM décrit comme sentier
+// (path, footway, bridleway) sans interdiction explicite reste ouvert : en Bretagne notamment, beaucoup de chemins
+// creux sont cartographiés ainsi dans OSM.
+function osmMotoBan(t, nature) {
   if (!t) return null;
   for (const k of ["motorcycle", "motor_vehicle", "vehicle", "access"])
     if (t[k]) return BAN.has(t[k]) ? `${k}=${t[k]}` : null;
-  if (["footway", "path", "bridleway", "cycleway", "steps", "pedestrian"].includes(t.highway)) return `highway=${t.highway}`;
+  const track = nature === "Chemin" || nature === "Route empierrée";
+  if ((track ? ["cycleway", "steps", "pedestrian"] : ["footway", "path", "bridleway", "cycleway", "steps", "pedestrian"]).includes(t.highway))
+    return `highway=${t.highway}`;
   return null;
 }
+const osmBanOf = (s) => osmMotoBan(s.osm && s.osm.properties, s.road && s.road.properties.nature);
 
 // ---------- Géométrie ----------
 const R = 6371008.8, rad = Math.PI / 180;
@@ -408,7 +414,7 @@ function motoReasons(s) {
   if (s.fonc === "particulier" || s.fonc === "pmprivee") r.push("prive");
   const p = s.road && s.road.properties;
   if (p && (p.acces_vehicule_leger === "Restreint aux ayants droit" || p.prive)) r.push("ayantsdroit");
-  if (osmMotoBan(s.osm && s.osm.properties)) r.push("osm");
+  if (osmBanOf(s)) r.push("osm");
   if (s.voie === "sentier" || (p && p.acces_vehicule_leger === "Physiquement impossible")) r.push("sentier");
   // une route goudronnée reste ouverte dans une réserve ou un cœur de parc (ponts sur une rivière protégée…)
   if (s.voie !== "revetue" && s.zones.some((z) => z.strong)) r.push("zone");
@@ -465,7 +471,7 @@ function alertRuns(samples, owners) {
     for (const s of ss) {
       if (s.reasons.includes("prive")) parcels.set(s.parcel.properties.idu, s.parcel);
       for (const z of s.zones) if (z.strong) zones.add(`${z.def.type} « ${z.properties.nom_site} »`);
-      const ban = osmMotoBan(s.osm && s.osm.properties);
+      const ban = osmBanOf(s);
       if (ban) osmTags.add(ban);
     }
     const who = [...parcels.keys()].map((i) => owners && owners[i] ? owners[i].map((o) => o.denomination).join(", ") : "particulier")
@@ -662,7 +668,7 @@ function motoPopup(s, owners) {
   if (!s.reasons.length) return "<b>Aucune restriction connue</b><br>" + muted("Voie a priori ouverte : vérifier la signalisation sur place.");
   const lines = s.reasons.map((r) => {
     if (r === "prive") return `${REASONS[r]} : ${parcelPopup(s.parcel, owners)}`;
-    if (r === "osm") return `${REASONS[r]} ${muted("(" + esc(osmMotoBan(s.osm.properties)) + ")")}`;
+    if (r === "osm") return `${REASONS[r]} ${muted("(" + esc(osmBanOf(s)) + ")")}`;
     if (r === "zone") return `${REASONS[r]} : ${s.zones.filter((z) => z.strong).map((z) => esc(z.properties.nom_site)).join(", ")}`;
     return REASONS[r];
   });

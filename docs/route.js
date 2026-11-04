@@ -14,7 +14,6 @@ const RT_MAX_SCALE = 1.6;    // agrandissement maximal du cercle lors du calibra
 const RT_DUP_MAX = 150;      // m repris au-delà desquels une boucle est écartée si une autre existe (aller-retour)
 const RT_REUSE = 30;         // surcoût par mètre d'un tronçon déjà emprunté (l'équivalent de 30 m de chemin) : pas d'aller-retour
                              // tant qu'un autre passage existe, mais pas non plus de détour de dizaines de km pour l'éviter
-const RT_SCAN_KM = 10;       // rayon de la carte des chemins publics autour de A
 const RT_PRIV_MIN = 20;      // m en parcelle privée à partir desquels un tronçon est écarté
 const RT_CHECK_ROUNDS = 20;  // vérifications du cadastre (puis recalcul) avant l'analyse complète
 const RT_EXPLORE = 8;        // premières vérifications où une boucle peut encore en remplacer une autre ; ensuite on la répare
@@ -207,7 +206,7 @@ function shortestPath(g, from, to, pref, avoid, used = new Set(), maxCost = Infi
 }
 
 function toGpx(name, lines) {
-  const pt = (p) => `<trkpt lat="${p[1].toFixed(7)}" lon="${p[0].toFixed(7)}">${p[2] != null ? `<ele>${p[2].toFixed(1)}</ele>` : ""}</trkpt>`;
+  const pt = (p) => `<trkpt lat="${p[1].toFixed(6)}" lon="${p[0].toFixed(6)}"${p[2] != null ? `><ele>${p[2].toFixed(1)}</ele></trkpt>` : "/>"}`;
   return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Analyseur de traces GPX" xmlns="http://www.topografix.com/GPX/1/1">\n` +
     `<trk><name>${esc(name)}</name>${lines.map((l) => `<trkseg>${l.map(pt).join("")}</trkseg>`).join("")}</trk>\n</gpx>\n`;
 }
@@ -452,8 +451,8 @@ function rtDraw() {
   document.querySelectorAll("#rt-mode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === rt.mode));
   $("rt-go").disabled = rt.busy || !(rt.a && (loop || rt.b));
   $("rt-again").disabled = $("rt-avoid").disabled = rt.busy;
-  $("rt-scan").disabled = rt.busy || !rt.a;
-  $("rt-scan").textContent = rt.scan ? "Masquer les chemins publics" : `Chemins publics à ${RT_SCAN_KM} km de A`;
+  $("rt-scan").disabled = (rt.busy && !rt.scanning) || !rt.a;
+  $("rt-scan").textContent = rt.scanning ? "Arrêter la vérification" : rt.scan ? "Masquer les chemins publics" : `Chemins publics à ${$("rt-scan-km").value} km de A`;
   $("rt-go").textContent = loop ? "Calculer la boucle" : "Calculer l'itinéraire";
   $("rt-again").hidden = !(rt.trace && traces.includes(rt.trace));
   $("rt-avoid").hidden = !(rt.trace && traces.includes(rt.trace));
@@ -567,52 +566,105 @@ async function rtRun(round = 0) {
   }
 }
 
-// Carte des chemins publics : vérifie le cadastre de tous les chemins à moins de RT_SCAN_KM de A et les dessine,
-// pour choisir un départ où il y en a. Les verdicts servent ensuite au calcul des itinéraires.
+// Carte des chemins publics : vérifie le cadastre de tous les chemins à moins du rayon choisi autour de A et les
+// dessine au fur et à mesure, du centre vers l'extérieur (arrêt possible à tout moment), pour choisir un départ ou
+// tracer soi-même sa sortie (export GPX). Les verdicts servent aussi au calcul des itinéraires.
+const RT_SCAN_BATCH = 1500; // tronçons vérifiés entre deux mises à jour de la carte
+const scanRenderer = L.canvas({ padding: 0.3 }); // des dizaines de milliers de traits : dessin sur canvas
+
 async function rtScan() {
-  const a = rt.a, r = RT_SCAN_KM * 1000;
-  rt.busy = true;
+  const a = rt.a, r = +$("rt-scan-km").value * 1000;
+  rt.busy = rt.scanning = true;
+  rt.scanStop = false;
   rtDraw();
   try {
     const g = await ensureNet(boxAround([a], r + 2000));
     const list = g.edges.filter((e) => isDirt(e) && !e.ban && dist(e.mid, a) <= r);
-    // ordre en serpentin par cellules d'environ 500 m : chaque lot de la requête couvre un petit secteur
+    // par anneaux de 1 km depuis le centre ; dans un anneau, serpentin par cellules d'environ 500 m pour que
+    // chaque lot de requête couvre un petit secteur
+    const ring = (e) => Math.floor(dist(e.mid, a) / 1000);
     const cell = (e) => { const y = Math.floor(e.mid[1] / 0.0045), x = Math.floor(e.mid[0] / 0.006); return y * 1e6 + (y % 2 ? -x : x); };
-    list.sort((p, q) => cell(p) - cell(q));
-    const km = Math.round(list.reduce((s, e) => s + e.len, 0) / 1000);
-    await checkEdges(list, $("rt-strict").checked, (f) => status(`Vérification du cadastre de ${km} km de chemins…`, f));
-    rt.scan = { a, r };
+    list.sort((p, q) => ring(p) - ring(q) || cell(p) - cell(q));
+    const total = list.reduce((s, e) => s + e.len, 0), km = (m) => Math.round(m / 1000);
+    rt.scan = { a, r, reach: 0 };
+    rtShowScan(true);
+    let done = 0;
+    for (let i = 0; i < list.length && !rt.scanStop; i += RT_SCAN_BATCH) {
+      const part = list.slice(i, i + RT_SCAN_BATCH), len = part.reduce((s, e) => s + e.len, 0);
+      await checkEdges(part, $("rt-strict").checked, (f) =>
+        status(`Vérification du cadastre : ${km(done + f * len)} / ${km(total)} km de chemins…`, (done + f * len) / total));
+      done += len;
+      rt.scan.reach = dist(part.at(-1).mid, a);
+      rtShowScan();
+    }
+    rt.scan.reach = rt.scanStop ? rt.scan.reach : r;
     rtShowScan();
     status("");
   } catch (e) {
     console.error(e);
     status(`Vérification impossible : ${e.message}`, null, true);
   } finally {
-    rt.busy = false;
+    rt.busy = rt.scanning = false;
     rtDraw();
   }
 }
 
-function rtShowScan() {
+// Chemins publics vérifiés dans le rayon de la carte
+const scanPublic = () => rt.net.edges.filter((e) => isDirt(e) && !e.ban && e.checked && dist(e.mid, rt.scan.a) <= rt.scan.r);
+
+function rtShowScan(fit) {
   rt.scanLayer.clearLayers();
-  $("rt-scan-info").hidden = !rt.scan;
+  $("rt-scan-info").hidden = $("rt-scan-gpx").hidden = !rt.scan;
   if (!rt.scan) return;
-  const { a, r } = rt.scan, km = { pub: 0, priv: 0, todo: 0, road: 0 };
+  const { a, r, reach } = rt.scan, km = { pub: 0, priv: 0, todo: 0, road: 0 }, lines = { pub: [], priv: [], todo: [] };
   for (const e of rt.net.edges) {
-    if (dist(e.mid, a) > r) continue;
+    const d = dist(e.mid, a);
+    if (d > reach) continue;
     if (!isDirt(e)) { if (!e.ban) km.road += e.len; continue; }
     const k = !e.ban ? (e.checked ? "pub" : "todo") : "priv";
     km[k] += e.len;
-    L.polyline(e.coords.map((c) => [c[1], c[0]]), { color: css(k === "pub" ? "--s3" : k === "priv" ? "--s8" : "--neutral"),
-      weight: k === "pub" ? 4 : 2, opacity: k === "pub" ? 0.95 : 0.5, interactive: false }).addTo(rt.scanLayer);
+    lines[k].push(e.coords.map((c) => [c[1], c[0]]));
   }
+  // une polyligne multiple par catégorie : léger à dessiner
+  for (const [k, color, weight, opacity] of [["todo", "--neutral", 2, 0.5], ["priv", "--s8", 2, 0.55], ["pub", "--s3", 4, 0.95]])
+    if (lines[k].length) L.polyline(lines[k], { renderer: scanRenderer, color: css(color), weight, opacity, interactive: false }).addTo(rt.scanLayer);
   L.circle([a[1], a[0]], { radius: r, color: css("--text-muted"), weight: 1, dashArray: "4 4", fill: false, interactive: false }).addTo(rt.scanLayer);
-  // ce qui compte pour la boucle : les chemins publics face aux routes qui les relient
+  if (reach < r) L.circle([a[1], a[0]], { radius: reach, color: css("--accent"), weight: 1, fill: false, interactive: false }).addTo(rt.scanLayer);
+  // ce qui compte pour une boucle : les chemins publics face aux routes qui les relient
   const f = (m) => `${Math.round(m / 1000)} km`, share = km.pub / Math.max(1, km.pub + km.road);
-  $("rt-scan-info").innerHTML = `À moins de ${RT_SCAN_KM} km de A : <b>${f(km.pub)} de chemins publics</b> (en vert) pour ${f(km.road)} de routes, ` +
+  $("rt-scan-info").innerHTML = (reach < r ? `Vérifié jusqu'à ${(reach / 1000).toFixed(1)} km sur ${r / 1000}${rt.scanning ? " (en cours)" : " (arrêté)"}. ` : "") +
+    `À moins de ${(reach / 1000).toFixed(reach < r ? 1 : 0)} km de A : <b>${f(km.pub)} de chemins publics</b> (en vert) pour ${f(km.road)} de routes, ` +
     `et ${f(km.priv)} de chemins privés ou interdits (en rouge)` + (km.todo > 500 ? `, ${f(km.todo)} non vérifiés (en gris)` : "") + `. ` +
     (share < 0.25 ? "Secteur pauvre : une boucle par ici passera surtout par la route." : share < 0.35 ? "Secteur moyen." : "Secteur favorable.");
-  map.fitBounds(L.latLng(a[1], a[0]).toBounds(2 * r));
+  if (fit) map.fitBounds(L.latLng(a[1], a[0]).toBounds(2 * r));
+}
+
+// Chemins publics bout à bout : les tronçons qui se suivent sans embranchement forment une seule ligne
+function joinEdges(edges) {
+  const at = new Map();
+  for (const e of edges) for (const v of [e.a, e.b]) (at.get(v) || at.set(v, []).get(v)).push(e);
+  const seen = new Set(), out = [];
+  for (const e of edges) {
+    if (seen.has(e)) continue;
+    seen.add(e);
+    const line = [...e.coords];
+    // vers l'avant depuis e.b, puis vers l'arrière depuis e.a
+    for (const back of [false, true]) {
+      let n = back ? e.a : e.b;
+      for (;;) {
+        const next = at.get(n);
+        if (next.length !== 2) break;
+        const x = next.find((y) => !seen.has(y)); // l'autre tronçon (déjà pris : boucle fermée)
+        if (!x) break;
+        seen.add(x);
+        const c = x.a === n ? x.coords : [...x.coords].reverse(); // c part de n
+        if (back) line.unshift(...c.slice(1).reverse()); else line.push(...c.slice(1));
+        n = x.a === n ? x.b : x.a;
+      }
+    }
+    out.push(line);
+  }
+  return out;
 }
 
 // OSM arrive après coup, par tuiles d'environ 1 km autour de l'itinéraire : on s'en sert pour écarter tous les
@@ -625,7 +677,7 @@ function rtOsmLearn(feats) {
   if (!g) return false;
   const cand = g.edges.filter((e) => !e.ban && ["Chemin", "Route empierrée"].includes(e.f.properties.nature));
   matchNearest(cand.map((e) => ({ p: e.mid })), feats).forEach(([f], i) => {
-    const ban = f && osmMotoBan(f.properties);
+    const ban = f && osmMotoBan(f.properties, cand[i].f.properties.nature);
     if (ban) cand[i].ban = "OSM " + ban;
   });
   return false;
@@ -676,7 +728,21 @@ $("rt-strict").addEventListener("change", () => {
 });
 $("rt-km").addEventListener("input", (e) => { $("rt-km-v").textContent = `${e.target.value} km`; rt.loop = null; });
 $("rt-avoid").addEventListener("click", () => rtAvoid());
-$("rt-scan").addEventListener("click", () => { if (rt.scan) { rt.scan = null; rtShowScan(); rtDraw(); } else rtScan(); });
+$("rt-scan").addEventListener("click", () => {
+  if (rt.scanning) rt.scanStop = true;
+  else if (rt.scan) { rt.scan = null; rtShowScan(); rtDraw(); } else rtScan();
+});
+$("rt-scan-km").addEventListener("input", (e) => { $("rt-scan-v").textContent = `${e.target.value} km`; rtDraw(); });
+$("rt-scan-gpx").addEventListener("click", () => {
+  // un point tous les 25 m au plus, sans altitude : fichier 2 à 3 fois plus léger pour GPX Studio
+  const thin = (l) => {
+    const out = [l[0]];
+    for (let i = 1; i < l.length; i++) if (i === l.length - 1 || dist(l[i], out.at(-1)) >= 25) out.push(l[i]);
+    return out.map((c) => [c[0], c[1]]);
+  };
+  const lines = joinEdges(scanPublic()).map(thin);
+  saveGpx(`Chemins publics ${rt.scan.r / 1000} km`, lines);
+});
 $("rt-pref").addEventListener("input", (e) => { $("rt-pref-v").textContent = e.target.value >= 0.7 ? "le plus de chemins" : e.target.value <= 0.3 ? "le plus court" : "équilibré"; });
 $("gpx-out").addEventListener("click", () => {
   if (!active) return;
