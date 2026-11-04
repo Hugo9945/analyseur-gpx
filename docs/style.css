@@ -175,6 +175,7 @@ button:disabled { opacity: .5; cursor: default; }
 .rt-pref input { width: 100%; accent-color: var(--accent); }
 .rt-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); }
 .pin.pin-rt { background: var(--accent); }
+.pin.pin-cp { background: var(--s3); }
 .seg { display: flex; margin: 4px 0 10px; }
 .seg button { flex: 1; border-radius: 0; }
 .seg button:first-child { border-radius: 6px 0 0 6px; }

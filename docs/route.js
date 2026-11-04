@@ -115,7 +115,7 @@ function buildGraph(feats, zones) {
     const mid = part[part.length >> 1];
     const e = { f, coords: part, len, mid, ban: rtBan(f.properties, inZone, mid), kind: rtKind(f.properties) };
     const v = rt.verdict.get(edgeKey(e));
-    if (v != null) { e.checked = true; e.ban = e.ban || v || null; }
+    if (v) { e.checked = true; e.ban = e.ban || v.ban; e.why = v.why; }
     const a = node(part[0]), b = node(part.at(-1));
     e.a = a; e.b = b;
     edges.push(e);
@@ -273,18 +273,26 @@ async function checkEdges(list, strict, progress = () => {}) {
   const inParcel = polyIndex(parcels);
   let n = 0;
   for (const e of todo) {
-    let priv = 0;
+    // why : longueur par catégorie (noncad, public, limite, prive) et parcelle la plus parcourue de la catégorie
+    // retenue, pour expliquer le verdict sur la carte des chemins publics
+    const m = { noncad: 0, public: 0, limite: 0, prive: 0 }, top = {};
     for (let j = 1; j < e.coords.length; j++) {
       const a = e.coords[j - 1], b = e.coords[j], d = dist(a, b), k = Math.max(1, Math.ceil(d / STEP));
-      for (let m = 0; m < k; m++) {
-        const t = (m + 0.5) / k, p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], f = inParcel(p);
-        if (!f) continue;
-        const c = parcelCat(f, owners);
-        if ((c === "particulier" || c === "pmprivee") && (strict || boundaryDist(p, f) >= EDGE_TOL)) priv += d / k;
+      for (let i = 0; i < k; i++) {
+        const t = (i + 0.5) / k, p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], f = inParcel(p);
+        let c = f ? parcelCat(f, owners) : "noncad";
+        if (c === "particulier" || c === "pmprivee") c = strict || boundaryDist(p, f) >= EDGE_TOL ? "prive" : "limite";
+        else if (c !== "noncad") c = "public";
+        m[c] += d / k;
+        if (f) ((top[c] ||= new Map()).set(f, (top[c].get(f) || 0) + d / k));
       }
     }
+    const priv = m.prive;
     if (priv >= RT_PRIV_MIN || priv > e.len / 2) { e.ban = "parcelle privée"; n++; }
-    if (e.ban || !lost.has(e)) { e.checked = true; rt.verdict.set(edgeKey(e), e.ban || ""); }
+    const main = e.ban ? "prive" : ["public", "limite", "noncad"].reduce((x, y) => (m[y] > m[x] ? y : x));
+    const f = top[main] && [...top[main]].sort((x, y) => y[1] - x[1])[0][0];
+    e.why = { m, main, f, o: f && owners[f.properties.idu] };
+    if (e.ban || !lost.has(e)) { e.checked = true; rt.verdict.set(edgeKey(e), { ban: e.ban, why: e.why }); }
   }
   rtLearnRates(rt.net);
   return { n, failed: lost.size > 0 };
@@ -441,6 +449,12 @@ const rt = { mode: "ab", a: null, b: null, pick: null, net: null, netBox: null, 
 function rtDraw() {
   rt.markers.clearLayers();
   const loop = rt.mode === "loop";
+  if (rt.c) L.marker([rt.c[1], rt.c[0]], { icon: L.divIcon({ className: "pin pin-cp", html: "", iconSize: [18, 18] }), interactive: false, zIndexOffset: 900 }).addTo(rt.markers);
+  $("cp-pick").textContent = rt.pick === "c" ? "Touche la carte…" : rt.c ? "Déplacer le centre" : "Placer le centre";
+  $("cp-pick").classList.toggle("on", rt.pick === "c");
+  $("cp-go").disabled = (rt.busy && !rt.scanning) || !rt.c;
+  $("cp-go").textContent = rt.scanning ? "Arrêter la vérification" : `Afficher les chemins à ${$("cp-km").value} km`;
+  $("cp-clear").hidden = !rt.scan || rt.scanning;
   for (const k of ["a", "b"]) {
     if (rt[k] && (k === "a" || !loop)) L.marker([rt[k][1], rt[k][0]], { icon: L.divIcon({ className: "pin pin-rt", html: k.toUpperCase(), iconSize: [24, 24] }), interactive: false, zIndexOffset: 1000 }).addTo(rt.markers);
     $(`rt-${k}`).textContent = rt.pick === k ? "Touche la carte…" : rt[k] ? `Déplacer ${k.toUpperCase()}` : `Placer ${k.toUpperCase()}`;
@@ -451,8 +465,6 @@ function rtDraw() {
   document.querySelectorAll("#rt-mode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === rt.mode));
   $("rt-go").disabled = rt.busy || !(rt.a && (loop || rt.b));
   $("rt-again").disabled = $("rt-avoid").disabled = rt.busy;
-  $("rt-scan").disabled = (rt.busy && !rt.scanning) || !rt.a;
-  $("rt-scan").textContent = rt.scanning ? "Arrêter la vérification" : rt.scan ? "Masquer les chemins publics" : `Chemins publics à ${$("rt-scan-km").value} km de A`;
   $("rt-go").textContent = loop ? "Calculer la boucle" : "Calculer l'itinéraire";
   $("rt-again").hidden = !(rt.trace && traces.includes(rt.trace));
   $("rt-avoid").hidden = !(rt.trace && traces.includes(rt.trace));
@@ -462,15 +474,16 @@ function rtPick(k) {
   stopPicking();
   rt.pick = rt.pick === k ? null : k;
   $("map").classList.toggle("picking", !!rt.pick);
-  hint(rt.pick ? `Touche la carte pour placer ${k.toUpperCase()}` : "");
+  hint(rt.pick ? `Touche la carte pour placer ${k === "c" ? "le centre de la carte des chemins" : k.toUpperCase()}` : "");
   rtDraw();
   if (rt.pick && window.matchMedia("(max-width: 800px)").matches) $("map").scrollIntoView({ behavior: "smooth" });
 }
 
 map.on("click", (e) => {
-  if (!rt.pick) return;
+  if (!rt.pick) return rt.scan && !picking && cpPopup(e);
   rt[rt.pick] = [e.latlng.lng, e.latlng.lat];
-  rt.net = null; rt.avoid.clear(); rt.loop = rt.via = null; // nouvelle emprise : le réseau sera rechargé
+  // nouvelle emprise pour un itinéraire : le réseau sera rechargé (la carte des chemins garde le sien s'il la couvre)
+  if (rt.pick !== "c") { rt.net = null; rt.avoid.clear(); rt.loop = rt.via = null; }
   rt.pick = null;
   $("map").classList.remove("picking");
   hint("");
@@ -566,14 +579,14 @@ async function rtRun(round = 0) {
   }
 }
 
-// Carte des chemins publics : vérifie le cadastre de tous les chemins à moins du rayon choisi autour de A et les
+// Carte des chemins publics : vérifie le cadastre de tous les chemins à moins du rayon choisi autour du centre et les
 // dessine au fur et à mesure, du centre vers l'extérieur (arrêt possible à tout moment), pour choisir un départ ou
 // tracer soi-même sa sortie (export GPX). Les verdicts servent aussi au calcul des itinéraires.
 const RT_SCAN_BATCH = 1500; // tronçons vérifiés entre deux mises à jour de la carte
 const scanRenderer = L.canvas({ padding: 0.3 }); // des dizaines de milliers de traits : dessin sur canvas
 
 async function rtScan() {
-  const a = rt.a, r = +$("rt-scan-km").value * 1000;
+  const a = rt.c, r = +$("cp-km").value * 1000;
   rt.busy = rt.scanning = true;
   rt.scanStop = false;
   rtDraw();
@@ -614,8 +627,10 @@ const scanPublic = () => rt.net.edges.filter((e) => isDirt(e) && !e.ban && e.che
 
 function rtShowScan(fit) {
   rt.scanLayer.clearLayers();
-  $("rt-scan-info").hidden = $("rt-scan-gpx").hidden = !rt.scan;
+  rt.scanGrid = null;
+  $("cp-info").hidden = $("cp-gpx").hidden = !rt.scan;
   if (!rt.scan) return;
+  const grid = (rt.scanGrid = new Grid(0.003)); // pour retrouver le chemin touché sur la carte
   const { a, r, reach } = rt.scan, km = { pub: 0, priv: 0, todo: 0, road: 0 }, lines = { pub: [], priv: [], todo: [] };
   for (const e of rt.net.edges) {
     const d = dist(e.mid, a);
@@ -624,6 +639,8 @@ function rtShowScan(fit) {
     const k = !e.ban ? (e.checked ? "pub" : "todo") : "priv";
     km[k] += e.len;
     lines[k].push(e.coords.map((c) => [c[1], c[0]]));
+    const xs = e.coords.map((c) => c[0]), ys = e.coords.map((c) => c[1]);
+    grid.add([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], e);
   }
   // une polyligne multiple par catégorie : léger à dessiner
   for (const [k, color, weight, opacity] of [["todo", "--neutral", 2, 0.5], ["priv", "--s8", 2, 0.55], ["pub", "--s3", 4, 0.95]])
@@ -632,11 +649,46 @@ function rtShowScan(fit) {
   if (reach < r) L.circle([a[1], a[0]], { radius: reach, color: css("--accent"), weight: 1, fill: false, interactive: false }).addTo(rt.scanLayer);
   // ce qui compte pour une boucle : les chemins publics face aux routes qui les relient
   const f = (m) => `${Math.round(m / 1000)} km`, share = km.pub / Math.max(1, km.pub + km.road);
-  $("rt-scan-info").innerHTML = (reach < r ? `Vérifié jusqu'à ${(reach / 1000).toFixed(1)} km sur ${r / 1000}${rt.scanning ? " (en cours)" : " (arrêté)"}. ` : "") +
-    `À moins de ${(reach / 1000).toFixed(reach < r ? 1 : 0)} km de A : <b>${f(km.pub)} de chemins publics</b> (en vert) pour ${f(km.road)} de routes, ` +
+  $("cp-info").innerHTML = (reach < r ? `Vérifié jusqu'à ${(reach / 1000).toFixed(1)} km sur ${r / 1000}${rt.scanning ? " (en cours)" : " (arrêté)"}. ` : "") +
+    `À moins de ${(reach / 1000).toFixed(reach < r ? 1 : 0)} km du centre : <b>${f(km.pub)} de chemins publics</b> (en vert) pour ${f(km.road)} de routes, ` +
     `et ${f(km.priv)} de chemins privés ou interdits (en rouge)` + (km.todo > 500 ? `, ${f(km.todo)} non vérifiés (en gris)` : "") + `. ` +
-    (share < 0.25 ? "Secteur pauvre : une boucle par ici passera surtout par la route." : share < 0.35 ? "Secteur moyen." : "Secteur favorable.");
+    (share < 0.25 ? "Secteur pauvre : une boucle par ici passera surtout par la route." : share < 0.35 ? "Secteur moyen." : "Secteur favorable.") +
+    " Touche un chemin pour savoir pourquoi.";
   if (fit) map.fitBounds(L.latLng(a[1], a[0]).toBounds(2 * r));
+}
+
+// Explication du verdict d'un chemin de la carte, au toucher (à moins de 12 pixels)
+const RT_BAN_TEXT = {
+  "voie privée": "voie privée (IGN)",
+  "Restreint aux ayants droit": "accès réservé aux ayants droit (IGN)",
+  "Physiquement impossible": "impraticable (IGN)",
+  "zone protégée": "dans une réserve naturelle, un biotope protégé ou un cœur de parc national",
+};
+function cpPopup(ev) {
+  // un clic sur une trace analysée ouvre déjà son propre détail
+  if (ev.originalEvent && ev.originalEvent.target.tagName === "path") return;
+  const p = [ev.latlng.lng, ev.latlng.lat], tol = (12 * 156543 * Math.cos(p[1] * rad)) / 2 ** map.getZoom();
+  let best = null, bd = tol;
+  for (const e of rt.scanGrid.at(p[0], p[1]))
+    for (let i = 1; i < e.coords.length; i++) {
+      const d = segDist(p, e.coords[i - 1], e.coords[i]).d;
+      if (d < bd) { bd = d; best = e; }
+    }
+  if (!best) return;
+  const e = best, w = e.why, m = (x) => `${Math.round(x)} m`, owners = w && w.o ? { [w.f.properties.idu]: w.o } : {};
+  const head = `<b>${esc(e.f.properties.nature)}</b> ${muted(m(e.len))}<br>`, tag = (t, c) => `<b style="color:${css(c)}">${t}</b>`;
+  let body;
+  if (e.ban === "parcelle privée")
+    body = `${tag("Privé", "--s8")} : traverse une parcelle privée sur ${m(w.m.prive)}<br>` + (w.f ? parcelPopup(w.f, owners) : "");
+  else if (e.ban)
+    body = `${tag("Interdit", "--s8")} : ` + (e.ban.startsWith("OSM ") ? `interdit dans OpenStreetMap (${esc(e.ban.slice(4))})` : esc(RT_BAN_TEXT[e.ban] || e.ban));
+  else if (!e.checked) body = `${tag("Non vérifié", "--neutral")} : le cadastre n'a pas répondu pour ce chemin.`;
+  else body = `${tag("Public", "--s3")} : ` + ({
+    noncad: "hors parcelle cadastrée (voie publique).",
+    public: "sur une parcelle publique :<br>" + (w.f ? parcelPopup(w.f, owners) : ""),
+    limite: `en limite de parcelle privée (à moins de ${EDGE_TOL} m) : sans doute un chemin entre deux parcelles, mal calé sur le cadastre.`,
+  }[w.main] || "pas de parcelle privée traversée.") + `<br>${muted("Vérifie quand même la signalisation sur place.")}`;
+  L.popup().setLatLng(ev.latlng).setContent(head + body).openOn(map);
 }
 
 // Chemins publics bout à bout : les tronçons qui se suivent sans embranchement forment une seule ligne
@@ -728,12 +780,11 @@ $("rt-strict").addEventListener("change", () => {
 });
 $("rt-km").addEventListener("input", (e) => { $("rt-km-v").textContent = `${e.target.value} km`; rt.loop = null; });
 $("rt-avoid").addEventListener("click", () => rtAvoid());
-$("rt-scan").addEventListener("click", () => {
-  if (rt.scanning) rt.scanStop = true;
-  else if (rt.scan) { rt.scan = null; rtShowScan(); rtDraw(); } else rtScan();
-});
-$("rt-scan-km").addEventListener("input", (e) => { $("rt-scan-v").textContent = `${e.target.value} km`; rtDraw(); });
-$("rt-scan-gpx").addEventListener("click", () => {
+$("cp-pick").addEventListener("click", () => rtPick("c"));
+$("cp-go").addEventListener("click", () => (rt.scanning ? (rt.scanStop = true) : rtScan()));
+$("cp-clear").addEventListener("click", () => { rt.scan = null; rtShowScan(); rtDraw(); });
+$("cp-km").addEventListener("input", (e) => { $("cp-v").textContent = `${e.target.value} km`; rtDraw(); });
+$("cp-gpx").addEventListener("click", () => {
   // un point tous les 25 m au plus, sans altitude : fichier 2 à 3 fois plus léger pour GPX Studio
   const thin = (l) => {
     const out = [l[0]];

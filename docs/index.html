@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Analyseur de traces GPX</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=3">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -55,16 +55,23 @@
       <button id="rt-again" hidden>↻ Nouvelle trace</button>
       <button id="rt-avoid" hidden>Éviter les points d'attention</button>
     </div>
+    <p class="note">Écarte les sentiers, pistes cyclables, voies privées ou réservées aux ayants droit, les chemins des réserves (IGN) et les chemins qui traversent une parcelle privée (cadastre). L'itinéraire est ensuite analysé comme une trace ; les interdictions OpenStreetMap, connues plus tard, s'affichent en rouge : « Éviter les points d'attention » recalcule sans elles.</p>
+  </details>
+
+  <details class="sec rt" id="cp">
+    <summary><span class="t">Carte des chemins publics</span><span class="s">Tous les chemins autour d'un point : publics en vert, privés en rouge</span></summary>
+    <div class="rt-pts"><button id="cp-pick">Placer le centre</button></div>
     <label class="rt-pref">
-      <span>Carte des chemins publics : rayon de <b id="rt-scan-v">10 km</b></span>
-      <input type="range" id="rt-scan-km" min="5" max="30" step="5" value="10">
+      <span>Rayon : <b id="cp-v">10 km</b></span>
+      <input type="range" id="cp-km" min="5" max="30" step="5" value="10">
     </label>
     <div class="actions">
-      <button id="rt-scan" disabled>Chemins publics à 10 km de A</button>
-      <button id="rt-scan-gpx" hidden>Exporter les chemins publics (GPX)</button>
+      <button id="cp-go" class="primary" disabled>Afficher les chemins à 10 km</button>
+      <button id="cp-gpx" hidden>Exporter les chemins publics (GPX)</button>
+      <button id="cp-clear" hidden>Effacer la carte</button>
     </div>
-    <p class="note" id="rt-scan-info" hidden></p>
-    <p class="note">Écarte les sentiers, pistes cyclables, voies privées ou réservées aux ayants droit, les chemins des réserves (IGN) et les chemins qui traversent une parcelle privée (cadastre). L'itinéraire est ensuite analysé comme une trace ; les interdictions OpenStreetMap, connues plus tard, s'affichent en rouge : « Éviter les points d'attention » recalcule sans elles.</p>
+    <p class="note" id="cp-info" hidden></p>
+    <p class="note">Chaque chemin est vérifié au cadastre : environ 1 min pour 10 km de rayon, 5 min pour 30 km. Touche un chemin pour savoir pourquoi il est vert ou rouge. L'export GPX s'importe comme calque dans GPX Studio pour tracer toi-même.</p>
   </details>
 
   <div id="status" hidden></div>
@@ -166,6 +173,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.1.0/turf.min.js"></script>
 <script src="app.js?v=4"></script>
-<script src="route.js?v=7"></script>
+<script src="route.js?v=8"></script>
 </body>
 </html>
