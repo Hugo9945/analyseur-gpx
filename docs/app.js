@@ -573,7 +573,7 @@ async function analyseTrace(file, progress) {
     s.fonc = foncCat(s, owners, a, b, inParcel);
   });
 
-  const res = { name: file.name.replace(/\.gpx$/i, ""), lines, samples, total, elev: slopes(samples), owners,
+  const res = { name: file.name.replace(/\.gpx$/i, ""), lines, samples, total, elev: slopes(samples), owners, roads: data.roads,
     ...crossings(samples, owners), notes, osm: "pending", osmCtl };
   applyOsm(res, null);
   return { res, osmPromise };

@@ -260,6 +260,152 @@ function toGpx(name, lines, extra = {}) {
     [[name, lines], ...Object.entries(extra).filter(([, ls]) => ls.length)].map(trk).join("") + `</gpx>\n`;
 }
 
+// ---------- Roadbook : une case (waypoint) par bifurcation, lisible dans DMD2, Rally Navigator, OsmAnd… ----------
+const RB_NEAR = 12;    // m : la trace passe par un nœud IGN où se croisent au moins 3 tronçons
+const RB_ARM = 30;     // m : directions d'arrivée et de départ mesurées 30 m avant et après
+const RB_MERGE = 40;   // m : carrefours plus proches fusionnés en une case (ronds-points, carrefours doubles)
+const RB_STRAIGHT = 20, RB_FORK = 40; // « tout droit » gardé seulement si une autre voie part à moins de 40° de la nôtre
+const RB_WARN = { prive: "privé", ferme: "terrain fermé", ayantsdroit: "ayants droit", osm: "interdit OSM", sentier: "sentier", zone: "zone protégée" };
+const bearing = (a, b) => (Math.atan2((b[0] - a[0]) * Math.cos(a[1] * rad), b[1] - a[1]) / rad + 360) % 360;
+const turnOf = (from, to) => ((to - from + 540) % 360) - 180; // > 0 : à droite
+
+function rbNodes(roads) {
+  const nodes = new Map();
+  for (const f of roads) {
+    const g = f.geometry;
+    if (!g) continue;
+    for (const l of g.type === "MultiLineString" ? g.coordinates : [g.coordinates]) {
+      if (l.length < 2) continue;
+      for (const [end, dir] of [[0, 1], [l.length - 1, -1]]) {
+        let i = end, d = 0;
+        while (i + dir >= 0 && i + dir < l.length && d < 15) { d += dist(l[i], l[i + dir]); i += dir; }
+        const k = `${l[end][0].toFixed(6)},${l[end][1].toFixed(6)}`;
+        const n = nodes.get(k) || nodes.set(k, { p: l[end], arms: [] }).get(k);
+        n.arms.push({ b: bearing(l[end], l[i]), f });
+      }
+    }
+  }
+  return [...nodes.values()].filter((n) => n.arms.length >= 3);
+}
+
+// Point de la trace à RB_ARM m d'un nœud, en remontant (dir -1) ou en avançant (dir 1) depuis l'échantillon i
+function rbArm(S, i, p, dir) {
+  for (let j = i; j >= 0 && j < S.length && S[j].line === S[i].line; j += dir) if (dist(S[j].p, p) >= RB_ARM) return j;
+  return -1;
+}
+
+function turnText(t) {
+  const a = Math.abs(t), side = t > 0 ? "droite" : "gauche";
+  return a < RB_STRAIGHT ? ["Tout droit", "↑"] : a < 60 ? [`Légèrement à ${side}`, t > 0 ? "↗" : "↖"]
+    : a < 120 ? [`À ${side}`, t > 0 ? "→" : "←"] : [`Serré à ${side}`, t > 0 ? "↘" : "↙"];
+}
+
+function roadbook(S, roads) {
+  const nodes = rbNodes(roads), C = 0.0005, grid = new Map();
+  const cell = (x, y) => `${x}:${y}`;
+  for (const n of nodes) {
+    const c = cell(Math.floor(n.p[0] / C), Math.floor(n.p[1] / C));
+    (grid.get(c) || grid.set(c, []).get(c)).push(n);
+  }
+  // passages de la trace près des nœuds (un nœud peut être franchi deux fois sur une boucle)
+  const hits = [], last = new Map();
+  S.forEach((s, i) => {
+    const x = Math.floor(s.p[0] / C), y = Math.floor(s.p[1] / C);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (const n of grid.get(cell(x + dx, y + dy)) || []) {
+      const d = dist(s.p, n.p);
+      if (d > RB_NEAR) continue;
+      const h = last.get(n);
+      if (h && i - h.i2 <= 3) { h.i2 = i; if (d < h.d) { h.d = d; h.i = i; } }
+      else { const nh = { n, i, i2: i, d }; last.set(n, nh); hits.push(nh); }
+    }
+  });
+  hits.sort((a, b) => a.i - b.i);
+  const groups = [];
+  for (const h of hits) {
+    const g = groups.at(-1);
+    if (g && S[h.i].line === S[g.at(-1).i].line && S[h.i].at - S[g.at(-1).i].at < RB_MERGE) g.push(h); else groups.push([h]);
+  }
+
+  const cases = [];
+  for (const g of groups) {
+    const first = g[0], lastH = g.at(-1);
+    const jb = rbArm(S, first.i, first.n.p, -1), ja = rbArm(S, lastH.i, lastH.n.p, 1);
+    if (jb < 0 || ja < 0) continue;
+    const bin = bearing(S[jb].p, first.n.p), bout = bearing(lastH.n.p, S[ja].p);
+    const turn = turnOf(bin, bout);
+    // voies qui partent ailleurs que par où la trace arrive et repart, à chaque nœud du carrefour
+    const others = [];
+    for (const h of g) {
+      const back = bearing(h.n.p, S[Math.max(rbArm(S, h.i, h.n.p, -1), 0)].p), fwd = bearing(h.n.p, S[Math.max(rbArm(S, h.i, h.n.p, 1), 0)].p);
+      const arms = h.n.arms.slice();
+      for (const target of [back, fwd]) {
+        let k = -1, best = 1e9;
+        arms.forEach((a, m) => { const d = Math.abs(turnOf(a.b, target)); if (d < best) { best = d; k = m; } });
+        if (k >= 0 && best < 60) arms.splice(k, 1);
+      }
+      others.push(...arms);
+    }
+    if (!others.length) continue;
+    const fork = others.some((a) => Math.abs(turnOf(a.b, bout)) < RB_FORK);
+    if (Math.abs(turn) < RB_STRAIGHT && !fork) {
+      // tout droit sans ambiguïté : case seulement si on traverse une route départementale ou nationale
+      if (!others.some((a) => a.f.properties.cpx_numero && a.f.properties.nature !== "Chemin")) continue;
+    }
+    const sIn = S[jb], sOut = S[Math.min(ja + 2, S.length - 1)];
+    const pOut = sOut.road && sOut.road.properties;
+    const [txt, arrow] = turnText(turn);
+    const notes = [];
+    if (g.some((h) => h.n.arms.some((a) => a.f.properties.nature === "Rond-point"))) notes.push("rond-point");
+    if (fork && Math.abs(turn) < 60) notes.push("bifurcation, bien prendre la bonne branche");
+    const crossed = others.map((a) => a.f.properties.cpx_numero).find((r) => r && (!pOut || pOut.cpx_numero !== r));
+    if (crossed && Math.abs(turn) < RB_STRAIGHT) notes.push(`traverser la ${crossed}, prudence`);
+    const name = pOut && (pOut.cpx_numero || pOut.nom_voie_ban_gauche || pOut.nom_collaboratif_gauche);
+    const paved = (s) => s.voie === "revetue" || s.voie === "cyclable";
+    const kind = !pOut ? null : paved(sOut) ? (paved(sIn) ? "route" : "reprendre le goudron") : pOut.nature === "Chemin" ? "chemin de terre" : "chemin empierré";
+    if (kind) notes.push(`${kind}${name ? ` « ${name} »` : ""}${!paved(sOut) && paved(sIn) ? " (fin du goudron)" : ""}`);
+    cases.push({ i: first.i, p: first.n.p, at: S[first.i].at, txt, arrow, notes, ways: others.length + 2 });
+  }
+
+  // points d'attention et fortes pentes jusqu'à la case suivante
+  cases.forEach((c, k) => {
+    const end = k + 1 < cases.length ? cases[k + 1].i : S.length;
+    const warn = new Set();
+    let steep = 0;
+    for (let j = c.i; j < end; j++) {
+      for (const r of S[j].reasons || []) if (RB_WARN[r]) warn.add(RB_WARN[r]);
+      const b = S[j + 3]; // pente sur 30 m : le relief, pas le bruit de l'altitude
+      if (b && b.line === S[j].line && S[j].z != null && b.z != null) steep = Math.max(steep, Math.abs(b.z - S[j].z) / Math.max(1, b.at - S[j].at));
+    }
+    if (warn.size) c.notes.push(`⚠ ${[...warn].join(", ")} avant la case suivante`);
+    if (steep >= 0.15) c.notes.push(`pente jusqu'à ${Math.round(steep * 100)} %`);
+  });
+  return cases;
+}
+
+const km1 = (m) => (m / 1000).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const km2 = (m) => (m / 1000).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function roadbookGpx(name, S, cases) {
+  const base = S[0].at - S[0].len / 2; // section isolée : kilométrage depuis son début
+  const wpt = (p, n, d) => `<wpt lat="${p[1].toFixed(6)}" lon="${p[0].toFixed(6)}"><name>${esc(n)}</name><cmt>${esc(d)}</cmt><desc>${esc(d)}</desc><sym>Waypoint</sym></wpt>\n`;
+  let prev = 0;
+  cases = cases.map((c) => ({ ...c, at: c.at - base }));
+  const w = [wpt(S[0].p, `0,0 Départ`, "Départ (km 0)")];
+  cases.forEach((c, k) => {
+    const d = `Case ${k + 1} · km ${km2(c.at)} (+${km2(c.at - prev)}) · ${c.txt}${c.notes.length ? " · " + c.notes.join(" · ") : ""}`;
+    w.push(wpt(c.p, `${km1(c.at)} ${c.arrow} ${c.txt}`, d));
+    prev = c.at;
+  });
+  const end = S.at(-1);
+  const fin = end.at + end.len / 2 - base;
+  w.push(wpt(end.p, `${km1(fin)} Arrivée`, `Arrivée · km ${km2(fin)} (+${km2(fin - prev)})`));
+  const lines = [];
+  for (const s of S) { if (!lines.length || lines.at(-1).line !== s.line) lines.push({ line: s.line, pts: [] }); lines.at(-1).pts.push(s); }
+  const pt = (s) => `<trkpt lat="${s.p[1].toFixed(6)}" lon="${s.p[0].toFixed(6)}">${s.z != null ? `<ele>${s.z.toFixed(1)}</ele>` : ""}</trkpt>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Analyseur de traces GPX" xmlns="http://www.topografix.com/GPX/1/1">\n` +
+    w.join("") + `<trk><name>${esc(name)}</name>${lines.map((l) => `<trkseg>${l.pts.map(pt).join("")}</trkseg>`).join("")}</trk>\n</gpx>\n`;
+}
+
 function saveGpx(name, lines, extra) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([toGpx(name, lines, extra)], { type: "application/gpx+xml" }));
@@ -912,5 +1058,12 @@ $("gpx-out").addEventListener("click", () => {
   if (!active) return;
   const v = view(active);
   saveGpx(v.name, active.sec ? [v.samples.map((s) => [...s.p, s.z])] : v.lines);
+});
+$("rb-out").addEventListener("click", () => {
+  if (!active || !active.res.roads) return;
+  const v = view(active), cases = roadbook(v.samples, active.res.roads);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([roadbookGpx(`${v.name} roadbook`, v.samples, cases)], { type: "application/gpx+xml" }));
+  a.download = `${v.name} roadbook.gpx`; a.click();
 });
 rtDraw();
