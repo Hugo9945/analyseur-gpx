@@ -32,10 +32,11 @@ const SURF = [
   { key: "inconnu",  label: "Inconnu",                    short: "inconnu", color: "--neutral" },
 ];
 const FONC = [
-  { key: "public",      label: "Personne publique (commune, État…)",   color: "--s1" },
+  { key: "public",      label: "Personne publique (commune, département, voirie)",   color: "--s1" },
   { key: "noncad",      label: "Non cadastré (voirie, domaine public)", color: "--s3" },
   { key: "limite",      label: "En limite de parcelle privée (±8 m)",  color: "--s5" },
   { key: "exploit",     label: "Chemin d'exploitation (ouvert sauf panneau)", color: "--s2" },
+  { key: "ferme",       label: "Terrain public fermé (armée, forêt domaniale…)", color: "--s7" },
   { key: "pmprivee",    label: "Personne morale privée (SCI, GFA…)",   color: "--s4" },
   { key: "particulier", label: "Particulier (probable)",               color: "--s8" },
   { key: "inconnu",     label: "Propriétaire inconnu",                 color: "--neutral" },
@@ -52,6 +53,7 @@ const SLOPES = [
 // interdits hors des voies ouvertes à la circulation publique)
 const REASONS = {
   prive:       "Parcelle privée",
+  ferme:       "Terrain de l'État ou d'un établissement public (armée, forêt domaniale, hôpital, voie ferrée…)",
   ayantsdroit: "Accès réservé aux ayants droit (IGN)",
   osm:         "Interdit aux motos d'après OSM",
   sentier:     "Sentier non carrossable (IGN)",
@@ -397,11 +399,19 @@ function boundaryDist(p, f) {
   return d;
 }
 
+// Les chemins ruraux appartiennent aux communes. Un chemin sur un terrain de l'État ou d'un établissement public
+// (camp militaire, forêt domaniale, hôpital, voie ferrée, recherche…) est sur son domaine privé, fermé à la
+// circulation publique, sauf voirie (routes, intercommunalités).
+const LOCAL_GROUPS = new Set(["commune", "département", "région"]);
+const PUBLIC_OPEN = /COMMUN|METROPOLE|AGGLOMERATION|SYNDICAT|SIVOM|SIVU|ROUTE|TRANSPORTS|EQUIPEMENT|DEPARTEMENT|REGION/i;
 function parcelCat(f, owners) {
   if (!owners) return "inconnu";
   const o = owners[f.properties.idu];
   if (!o) return "particulier";
-  return o.some((x) => PUBLIC_GROUPS.has(x.groupe)) ? "public" : "pmprivee";
+  if (o.some((x) => LOCAL_GROUPS.has(x.groupe))) return "public";
+  const pub = o.filter((x) => PUBLIC_GROUPS.has(x.groupe));
+  if (!pub.length) return "pmprivee";
+  return pub.some((x) => PUBLIC_OPEN.test(x.denomination || "")) ? "public" : "ferme";
 }
 
 // Point privé à moins de EDGE_TOL m d'une limite : ce n'est un chemin rural mal calé que si une bande non
@@ -434,13 +444,14 @@ function foncCat(s, owners, a, b, inParcel) {
   if (!s.parcel) return "noncad";
   const c = parcelCat(s.parcel, owners);
   if ((c === "particulier" || c === "pmprivee") && exploitParcel(s.parcel, owners)) return "exploit";
-  return (c === "particulier" || c === "pmprivee") && boundaryDist(s.snap, s.parcel) < EDGE_TOL
+  return (c === "particulier" || c === "pmprivee" || c === "ferme") && boundaryDist(s.snap, s.parcel) < EDGE_TOL
     && gapBeside(s.snap, a, b, inParcel, owners) ? "limite" : c;
 }
 
 function motoReasons(s) {
   const r = [];
   if (s.fonc === "particulier" || s.fonc === "pmprivee") r.push("prive");
+  if (s.fonc === "ferme") r.push("ferme");
   const p = s.road && s.road.properties;
   if (p && (p.acces_vehicule_leger === "Restreint aux ayants droit" || p.prive)) r.push("ayantsdroit");
   if (osmBanOf(s)) r.push("osm");
@@ -498,7 +509,7 @@ function alertRuns(samples, owners) {
     const reasons = sumBy(ss.flatMap((s) => s.reasons.map((r) => ({ r, len: s.len }))), (x) => x.r);
     const parcels = new Map(), zones = new Set(), osmTags = new Set();
     for (const s of ss) {
-      if (s.reasons.includes("prive")) parcels.set(s.parcel.properties.idu, s.parcel);
+      if (s.reasons.includes("prive") || s.reasons.includes("ferme")) parcels.set(s.parcel.properties.idu, s.parcel);
       for (const z of s.zones) if (z.strong) zones.add(`${z.def.type} « ${z.properties.nom_site} »`);
       const ban = osmBanOf(s);
       if (ban) osmTags.add(ban);
@@ -600,7 +611,7 @@ function summarize(res) {
     total, up: elev ? elev.up : null,
     revetue: pctOf((s) => s.voie === "revetue"), chemin: pctOf((s) => s.voie === "chemin" || s.voie === "empierree"),
     sentier: pctOf((s) => s.voie === "sentier"), offroad: pctOf((s) => s.surf === "terre" || s.surf === "cailloux"),
-    prive: pctOf((s) => s.fonc === "particulier" || s.fonc === "pmprivee"),
+    prive: pctOf((s) => s.fonc === "particulier" || s.fonc === "pmprivee" || s.fonc === "ferme"),
     alertKm: sumIf(samples, (s) => s.reasons.length) / 1000, alertN: res.alerts.length,
   };
 }
@@ -765,7 +776,7 @@ function parcelPopup(f, owners, crossed) {
 function motoPopup(s, owners) {
   if (!s.reasons.length) return "<b>Aucune restriction connue</b><br>" + muted("Voie a priori ouverte : vérifier la signalisation sur place.");
   const lines = s.reasons.map((r) => {
-    if (r === "prive") return `${REASONS[r]} : ${parcelPopup(s.parcel, owners)}`;
+    if (r === "prive" || r === "ferme") return `${REASONS[r]} : ${parcelPopup(s.parcel, owners)}`;
     if (r === "osm") return `${REASONS[r]} ${muted("(" + esc(osmBanOf(s)) + ")")}`;
     if (r === "zone") return `${REASONS[r]} : ${s.zones.filter((z) => z.strong).map((z) => esc(z.properties.nom_site)).join(", ")}`;
     return REASONS[r];

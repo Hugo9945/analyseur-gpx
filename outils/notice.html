@@ -107,7 +107,7 @@
     <div>
       <table>
         <tr><td>De A à B</td><td>Touche <span class="k">Placer A</span> puis la carte, pareil pour B (80 km max à vol d'oiseau).</td></tr>
-        <tr><td>Boucle depuis A</td><td>Place A et choisis la <b>distance visée</b> (10 à 100 km). La boucle va chercher les secteurs de chemins autour de A et les traverse d'un bout à l'autre ; elle tombe en général à moins de 10 % de la cible.</td></tr>
+        <tr><td>Boucle depuis A</td><td>Place A et choisis la <b>distance visée</b> (10 à 100 km). L'app vérifie d'abord tout le cadastre autour de A puis garde la meilleure de 96 boucles : 2 à 5 minutes.</td></tr>
         <tr><td>Préférence</td><td>De <b>Plus court</b> à <b>Max de chemins</b> : plus le curseur est à droite, plus les routes goudronnées sont évitées.</td></tr>
         <tr><td>Carte des chemins</td><td>Onglet <span class="k">Chemins</span>, 5 à 30 km : <b>vert</b> public, <b>orange</b> chemin d'exploitation (ouvert sauf panneau ; pris si la case est cochée), rouge privé. Touche un chemin pour la raison. Export GPX.</td></tr>
         <tr><td>Prudence</td><td>Écarte aussi les chemins qui longent une parcelle privée (moins de 8 m : la carte IGN et le cadastre sont souvent décalés de 5 à 10 m). Plus sûr, mais beaucoup moins de chemins.</td></tr>
@@ -122,7 +122,7 @@
     </div>
   </div>
   <div class="box">
-    <b>Ce que l'app écarte.</b> Sentiers, escaliers, pistes cyclables, voies privées ou réservées aux ayants droit (IGN), chemins des cœurs de parc et réserves (les routes goudronnées qui les traversent restent permises), et les chemins qui traversent une <b>parcelle privée</b> : le cadastre est vérifié pendant le calcul. La trace affichée ne change plus toute seule : si OpenStreetMap signale ensuite des interdictions, elles apparaissent en rouge et <span class="k">Éviter les points d'attention</span> recalcule sans elles.<br><b>Part de route.</b> Elle dépend du secteur : l'app mesure sur place quelle part des chemins est privée et s'en sert pour choisir la boucle. Compte 30 à 40 % de route là où les chemins sont surtout publics (Yonne), 60 à 65 % là où la plupart sont privés (Comminges : 3 chemins sans nom sur 4).
+    <b>Ce que l'app écarte.</b> Sentiers, escaliers, pistes cyclables, voies privées ou réservées aux ayants droit (IGN), chemins des cœurs de parc et réserves (les routes goudronnées qui les traversent restent permises), les chemins en <b>parcelle privée</b> ou sur un terrain fermé de l'État (armée, forêt domaniale…). La trace affichée ne change plus toute seule : si OpenStreetMap signale ensuite des interdictions, elles apparaissent en rouge et <span class="k">Éviter les points d'attention</span> recalcule sans elles.<br><b>Part de route.</b> Elle dépend du secteur : l'app mesure sur place quelle part des chemins est privée et s'en sert pour choisir la boucle. Compte 30 à 40 % de route là où les chemins sont surtout publics (Yonne), 60 à 65 % là où la plupart sont privés (Comminges : 3 chemins sans nom sur 4).
   </div>
 </section>
 

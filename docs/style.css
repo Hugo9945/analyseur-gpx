@@ -9,7 +9,7 @@
   --accent: #2a78d6;
   --accent-soft: #e6f0fb;
   --shadow: 0 10px 30px #0000001f, 0 2px 6px #00000014;
-  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s8: #e34948;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s7: #8a5cd1; --s8: #e34948;
   --neutral: #a3a29c;
   --q1: #86b6ef; --q2: #5598e7; --q3: #2a78d6; --q4: #1c5cab; --q5: #104281; --q6: #0d366b;
   --sheet-vis: 0px; /* hauteur visible du tiroir (téléphone), pour les contrôles de la carte */
@@ -21,7 +21,7 @@
     --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8d8c85;
     --accent: #3987e5; --accent-soft: #1b2b40;
     --shadow: 0 10px 30px #00000080, 0 2px 6px #00000060;
-    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s8: #e66767;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s7: #9a71dd; --s8: #e66767;
     --neutral: #6b6a65;
     --q1: #184f95; --q2: #1c5cab; --q3: #256abf; --q4: #3987e5; --q5: #6da7ec; --q6: #9ec5f4;
   }
@@ -32,7 +32,7 @@
   --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8d8c85;
   --accent: #3987e5; --accent-soft: #1b2b40;
   --shadow: 0 10px 30px #00000080, 0 2px 6px #00000060;
-  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s8: #e66767;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s7: #9a71dd; --s8: #e66767;
   --neutral: #6b6a65;
   --q1: #184f95; --q2: #1c5cab; --q3: #256abf; --q4: #3987e5; --q5: #6da7ec; --q6: #9ec5f4;
 }

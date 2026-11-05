@@ -6,7 +6,9 @@ const RT_TILE = 0.05;        // degrés : taille des tuiles téléchargées
 const RT_MAX_KM = 80;        // distance à vol d'oiseau maximale entre A et B
 const RT_AUTO_ROUNDS = 1;    // contournement automatique des points d'attention IGN / cadastre, avant de rendre la main
 const RT_DETOUR = 1.3;       // rapport longueur réelle / longueur du cercle (les chemins serpentent)
-const RT_CANDIDATES = 16;    // boucles essayées (orientations et nombres de points différents), on garde la meilleure
+const RT_CANDIDATES = 96;    // boucles essayées (orientations et nombres de points différents), on garde la meilleure
+const RT_PRECHECK = 2.6;     // avant une boucle, cadastre vérifié jusqu'à 2,6 fois le rayon du cercle autour de A : sans ça,
+const RT_PRECHECK_MAX = 30000; // le générateur fuit les chemins pas encore vérifiés (une sur deux est privée) et prend la route
 const RT_LEG = 10000;        // m de boucle par secteur de chemins visé (au moins 4) : plus la boucle est longue, plus elle zigzague
 const RT_MAX_ROAD = 0.4;     // part de route au-delà de laquelle une boucle est nettement pénalisée
 const RT_SECTOR_MIN = 1500;  // m : longueur minimale d'un secteur de chemins visé par une boucle
@@ -16,6 +18,7 @@ const RT_REUSE = 30;         // surcoût par mètre d'un tronçon déjà emprunt
                              // tant qu'un autre passage existe, mais pas non plus de détour de dizaines de km pour l'éviter
 const RT_PRIV_MIN = 20;      // m en parcelle privée à partir desquels un tronçon est écarté
 const RT_EXPL = "chemin d'exploitation"; // tronçon sur la parcelle d'un chemin d'exploitation, écarté sauf case cochée
+const RT_FERME = "terrain public fermé"; // camp militaire, forêt domaniale, hôpital, voie ferrée… (voir parcelCat)
 const RT_CHECK_ROUNDS = 20;  // vérifications du cadastre (puis recalcul) avant l'analyse complète
 const RT_EXPLORE = 8;        // premières vérifications où une boucle peut encore en remplacer une autre ; ensuite on la répare
 const RT_PROPS = "geometrie,nature,importance,prive,acces_vehicule_leger,sens_de_circulation,cpx_nature_itineraire_autre,nom_voie_ban_gauche,nom_collaboratif_gauche";
@@ -81,7 +84,7 @@ function rtLearnRates(g) {
   const ok = {}, all = {};
   for (const e of g.edges) {
     const k = e.checked && e.kind;
-    if (!k || (e.ban && e.ban !== "parcelle privée")) continue;
+    if (!k || (e.ban && e.ban !== "parcelle privée" && e.ban !== RT_FERME)) continue;
     all[k] = (all[k] || 0) + e.len;
     if (!e.ban) ok[k] = (ok[k] || 0) + e.len;
   }
@@ -281,32 +284,32 @@ async function checkEdges(list, strict, progress = () => {}) {
   for (const e of todo) {
     // why : longueur par catégorie (noncad, public, limite, prive) et parcelle la plus parcourue de la catégorie
     // retenue, pour expliquer le verdict sur la carte des chemins publics
-    const m = { noncad: 0, public: 0, limite: 0, prive: 0, joint: 0, exploit: 0 }, top = {};
+    const m = { noncad: 0, public: 0, limite: 0, prive: 0, joint: 0, exploit: 0, ferme: 0 }, top = {};
     for (let j = 1; j < e.coords.length; j++) {
       const a = e.coords[j - 1], b = e.coords[j], d = dist(a, b), k = Math.max(1, Math.ceil(d / STEP));
       for (let i = 0; i < k; i++) {
         const t = (i + 0.5) / k, p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], f = inParcel(p);
         let c = f ? parcelCat(f, owners) : "noncad";
         if ((c === "particulier" || c === "pmprivee") && exploitParcel(f, owners)) c = "exploit";
-        else if (c === "particulier" || c === "pmprivee") {
+        else if (c === "particulier" || c === "pmprivee" || c === "ferme") {
           const near = !strict && boundaryDist(p, f) < EDGE_TOL;
-          c = near && gapBeside(p, a, b, inParcel, owners) ? "limite" : "prive";
+          c = near && gapBeside(p, a, b, inParcel, owners) ? "limite" : c === "ferme" ? "ferme" : "prive";
           if (near && c === "prive") m.joint += d / k; // le long d'une limite entre parcelles privées jointives
         } else if (c !== "noncad") c = "public";
         m[c] += d / k;
         if (f) ((top[c] ||= new Map()).set(f, (top[c].get(f) || 0) + d / k));
       }
     }
-    const priv = m.prive;
+    const priv = m.prive + m.ferme;
     // surtout sur la parcelle d'un chemin d'exploitation : ses bouts « en limite » sans bande non cadastrée
     // (carrefours, décalages) comptent avec elle ; une vraie traversée de parcelle privée l'écarte quand même
     const expl = (m.exploit >= RT_PRIV_MIN || m.exploit > e.len / 2) && m.exploit >= priv && priv - m.joint < RT_PRIV_MIN;
-    if (!expl && (priv >= RT_PRIV_MIN || priv > e.len / 2)) { e.ban = "parcelle privée"; n++; }
+    if (!expl && (priv >= RT_PRIV_MIN || priv > e.len / 2)) { e.ban = m.ferme > m.prive ? RT_FERME : "parcelle privée"; n++; }
     else if (expl) {
       e.expl = true;
       if (!$("rt-expl").checked) { e.ban = RT_EXPL; n++; }
     }
-    const main = e.ban === "parcelle privée" ? "prive" : e.expl ? "exploit" : ["public", "limite", "noncad"].reduce((x, y) => (m[y] > m[x] ? y : x));
+    const main = e.ban === "parcelle privée" ? "prive" : e.ban === RT_FERME ? "ferme" : e.expl ? "exploit" : ["public", "limite", "noncad"].reduce((x, y) => (m[y] > m[x] ? y : x));
     const f = top[main] && [...top[main]].sort((x, y) => y[1] - x[1])[0][0];
     e.why = { m, main, f, o: f && owners[f.properties.idu] };
     if (e.ban || !lost.has(e)) {
@@ -398,7 +401,8 @@ function dirtSectors(g, ok, gate) {
 // secteur de chemins qui offre la plus longue traversée, et la boucle le traverse d'un bout à l'autre ; faute de
 // secteur, le point est recalé sur le croisement le plus proche. Le rayon est corrigé jusqu'à ce que la longueur
 // réelle soit à 7 % de la cible.
-function loopCandidate(g, start, a, sectors, cross, target, pref, theta, n, scale = 1) {
+// score : note d'une boucle (la plus haute gagne) ; parmi les essais du calibrage, on garde la mieux notée
+function loopCandidate(g, start, a, sectors, cross, target, pref, theta, n, scale, score) {
   let best = null;
   for (let k = 0; k < 7; k++) {
     // rayon de recherche des secteurs fixe : un cercle rétréci par le calibrage doit encore les atteindre
@@ -414,7 +418,11 @@ function loopCandidate(g, start, a, sectors, cross, target, pref, theta, n, scal
         const d = Math.min(dist(z.pu, p), dist(z.pv, p)), sc = z.t * (1 - (0.5 * d) / rs);
         if (d <= rs && sc > bs) { bs = sc; sec = z; }
       }
-      if (!sec) { blocks[nodes.length] = [after].filter(Boolean); after = null; nodes.push(nearestNode(g, p, rt.avoid, cross).i); continue; }
+      if (!sec) {
+        const q = nearestNode(g, p, rt.avoid, cross).i;
+        if (q >= 0) { blocks[nodes.length] = [after].filter(Boolean); after = null; nodes.push(q); }
+        continue;
+      }
       used.add(sec);
       // entrée par le bout le plus proche du point précédent
       const prev = g.xy[nodes.at(-1)];
@@ -426,7 +434,9 @@ function loopCandidate(g, start, a, sectors, cross, target, pref, theta, n, scal
     nodes.push(start);
     const path = chainPath(g, nodes, pref, blocks);
     if (!path) break;
-    if (!best || Math.abs(path.len - target) < Math.abs(best.path.len - target)) best = { path, theta, n, scale };
+    const l = { path, theta, n, scale };
+    l.score = score(l);
+    if (!best || l.score > best.score) best = l;
     if (Math.abs(path.len / target - 1) < 0.07) break;
     scale = Math.min(RT_MAX_SCALE, Math.max(0.3, scale * target / path.len));
   }
@@ -436,7 +446,7 @@ function loopCandidate(g, start, a, sectors, cross, target, pref, theta, n, scal
 // Choisit la boucle qui a le plus de chemins à la bonne distance parmi RT_CANDIDATES orientations.
 // Après quelques contrôles du cadastre, on garde la même boucle et on la répare (prev) : en changer ferait
 // découvrir à chaque fois de nouveaux chemins non vérifiés, dont la moitié peut être privée.
-function planLoop(g, a, target, pref, seed, prev) {
+async function planLoop(g, a, target, pref, seed, prev, progress = () => {}) {
   const mask = mainComponent(g, rt.avoid);
   const start = nearestNode(g, a, rt.avoid, mask).i;
   if (start < 0) return null;
@@ -446,17 +456,19 @@ function planLoop(g, a, target, pref, seed, prev) {
   const cross = deg.map((d) => (d >= 3 ? 1 : 0));
   const gate = deg.map((d, i) => (d && g.adj[i].some((s) => !s.e.ban && !rt.avoid.has(s.e) && !isDirt(s.e)) ? 1 : 0));
   const sectors = pref ? dirtSectors(g, deg.map((d) => (d >= 2 ? 1 : 0)), gate) : [];
-  // la boucle réparée est gardée tant qu'elle reste à 10 % de la distance visée, sans aller-retour
-  const fixed = prev && loopCandidate(g, start, a, sectors, cross, target, pref, prev.theta, prev.n, prev.scale);
-  if (fixed && Math.abs(fixed.path.len / target - 1) <= 0.1 && fixed.path.dup < RT_DUP_MAX) return fixed;
   // le plus de chemins (et pas plus de RT_MAX_ROAD de route), la bonne distance, pas d'aller-retour sur un même bout
   const score = (l, d = dirtExpected(l.path)) => (pref ? d - 3 * Math.max(0, 1 - d - RT_MAX_ROAD) : 0)
     - 2 * Math.abs(l.path.len / target - 1) - 8 * Math.max(0, Math.abs(l.path.len / target - 1) - 0.1) - 10 * l.path.dup / l.path.len - (l.path.dup >= RT_DUP_MAX ? 1 : 0);
+  // la boucle réparée est gardée tant qu'elle reste à 10 % de la distance visée, sans aller-retour
+  const fixed = prev && loopCandidate(g, start, a, sectors, cross, target, pref, prev.theta, prev.n, prev.scale, score);
+  if (fixed && Math.abs(fixed.path.len / target - 1) <= 0.1 && fixed.path.dup < RT_DUP_MAX) return fixed;
   const n = Math.max(4, Math.round(target / RT_LEG));
   let best = fixed || null;
   for (let i = 0; i < RT_CANDIDATES; i++) {
-    const l = loopCandidate(g, start, a, sectors, cross, target, pref, seed + (2 * Math.PI * i) / RT_CANDIDATES, n + (i % 2));
-    if (l && (!best || score(l) > score(best))) best = l;
+    // le calcul est long : la page reste réactive et la barre avance
+    if (i % 4 === 0) { progress(i / RT_CANDIDATES); await new Promise((r) => setTimeout(r)); }
+    const l = loopCandidate(g, start, a, sectors, cross, target, pref, seed + (2 * Math.PI * i) / RT_CANDIDATES, Math.max(3, n - 3 + (i % 5)), 1, score);
+    if (l && (!best || l.score > best.score)) best = l;
   }
   return best;
 }
@@ -549,8 +561,12 @@ async function rtRun(round = 0) {
       const target = +$("rt-km").value * 1000;
       // le cercle peut grandir jusqu'à 1,6 fois son rayon de départ lors du calibrage
       g = await ensureNet(boxAround([a], (RT_MAX_SCALE * 2 * target) / (2 * Math.PI * RT_DETOUR) + 2000));
-      compute = (k) => {
-        rt.loop = planLoop(g, a, target, pref, rt.seed, round || k > RT_EXPLORE ? rt.loop : null);
+      // tout le cadastre du secteur d'abord : la boucle se choisit sur des chemins déjà vérifiés
+      if (pref) await checkArea(g, a, Math.min(RT_PRECHECK_MAX, (RT_PRECHECK * target) / (2 * Math.PI * RT_DETOUR)), "Vérification du cadastre autour de A");
+      compute = async (k) => {
+        // secteur déjà vérifié : la boucle choisie au premier tour est réparée, pas remplacée
+        rt.loop = await planLoop(g, a, target, pref, rt.seed, round || k > (pref ? 1 : RT_EXPLORE) ? rt.loop : null,
+          (f) => status(`Recherche d'une boucle · vérification du cadastre (${k})…`, f));
         if (!rt.loop) throw new Error("aucune boucle autorisée trouvée autour de A");
         return rt.loop.path;
       };
@@ -575,7 +591,7 @@ async function rtRun(round = 0) {
     for (let k = 1; ; k++) {
       status(`${loop ? "Recherche d'une boucle" : "Recherche d'un itinéraire"} · vérification du cadastre (${k})…`, null);
       await new Promise((r) => setTimeout(r));
-      path = compute(k);
+      path = await compute(k);
       if (k > RT_CHECK_ROUNDS) break;
       // cadastre indisponible deux fois de suite : on passe à l'analyse, qui signalera ce qui reste à éviter
       const { n, failed } = await checkEdges(path.edges, strict).catch((e) => (console.warn("cadastre", e), { n: 0, failed: true }));
@@ -606,6 +622,25 @@ async function rtRun(round = 0) {
 const RT_SCAN_BATCH = 1500; // tronçons vérifiés entre deux mises à jour de la carte
 const scanRenderer = L.canvas({ padding: 0.3 }); // des dizaines de milliers de traits : dessin sur canvas
 
+// Vérifie le cadastre de tous les chemins pas encore contrôlés à moins de r du point a : par anneaux de 1 km
+// depuis a ; dans un anneau, serpentin par cellules d'environ 500 m pour que chaque lot de requête couvre un
+// petit secteur. after(distance atteinte) après chaque lot ; stop() arrête entre deux lots.
+async function checkArea(g, a, r, label, after = () => {}, stop = () => false) {
+  const list = g.edges.filter((e) => isDirt(e) && !e.ban && !e.checked && dist(e.mid, a) <= r);
+  const ring = (e) => Math.floor(dist(e.mid, a) / 1000);
+  const cell = (e) => { const y = Math.floor(e.mid[1] / 0.0045), x = Math.floor(e.mid[0] / 0.006); return y * 1e6 + (y % 2 ? -x : x); };
+  list.sort((p, q) => ring(p) - ring(q) || cell(p) - cell(q));
+  const total = list.reduce((s, e) => s + e.len, 0), km = (m) => Math.round(m / 1000);
+  let done = 0;
+  for (let i = 0; i < list.length && !stop(); i += RT_SCAN_BATCH) {
+    const part = list.slice(i, i + RT_SCAN_BATCH), len = part.reduce((s, e) => s + e.len, 0);
+    await checkEdges(part, $("rt-strict").checked, (f) =>
+      status(`${label} : ${km(done + f * len)} / ${km(total)} km de chemins…`, (done + f * len) / total));
+    done += len;
+    after(dist(part.at(-1).mid, a));
+  }
+}
+
 async function rtScan() {
   const a = rt.c, r = +$("cp-km").value * 1000;
   rt.busy = rt.scanning = true;
@@ -613,24 +648,9 @@ async function rtScan() {
   rtDraw();
   try {
     const g = await ensureNet(boxAround([a], r + 2000));
-    const list = g.edges.filter((e) => isDirt(e) && !e.ban && dist(e.mid, a) <= r);
-    // par anneaux de 1 km depuis le centre ; dans un anneau, serpentin par cellules d'environ 500 m pour que
-    // chaque lot de requête couvre un petit secteur
-    const ring = (e) => Math.floor(dist(e.mid, a) / 1000);
-    const cell = (e) => { const y = Math.floor(e.mid[1] / 0.0045), x = Math.floor(e.mid[0] / 0.006); return y * 1e6 + (y % 2 ? -x : x); };
-    list.sort((p, q) => ring(p) - ring(q) || cell(p) - cell(q));
-    const total = list.reduce((s, e) => s + e.len, 0), km = (m) => Math.round(m / 1000);
     rt.scan = { a, r, reach: 0 };
     rtShowScan(true);
-    let done = 0;
-    for (let i = 0; i < list.length && !rt.scanStop; i += RT_SCAN_BATCH) {
-      const part = list.slice(i, i + RT_SCAN_BATCH), len = part.reduce((s, e) => s + e.len, 0);
-      await checkEdges(part, $("rt-strict").checked, (f) =>
-        status(`Vérification du cadastre : ${km(done + f * len)} / ${km(total)} km de chemins…`, (done + f * len) / total));
-      done += len;
-      rt.scan.reach = dist(part.at(-1).mid, a);
-      rtShowScan();
-    }
+    await checkArea(g, a, r, "Vérification du cadastre", (reach) => { rt.scan.reach = reach; rtShowScan(); }, () => rt.scanStop);
     rt.scan.reach = rt.scanStop ? rt.scan.reach : r;
     rtShowScan();
     status("");
@@ -714,6 +734,10 @@ function cpPopup(ev) {
     body = `${tag("Privé", "--s8")} : ` + (w.m.joint > w.m.prive / 2
       ? `suit sur ${m(w.m.prive)} la limite entre parcelles privées, sans bande non cadastrée à côté : sans doute un chemin d'exploitation privé.<br>`
       : `traverse une parcelle privée sur ${m(w.m.prive)}<br>`) + (w.f ? parcelPopup(w.f, owners) : "");
+  else if (e.ban === RT_FERME)
+    body = `${tag("Fermé", "--s8")} : traverse sur ${m(w.m.ferme)} un terrain de l'État ou d'un établissement public (camp militaire, ` +
+      `forêt domaniale, hôpital, voie ferrée…). Ce n'est pas un chemin rural : il n'est pas ouvert à la circulation publique.<br>` +
+      (w.f ? parcelPopup(w.f, owners) : "");
   else if (e.ban)
     body = `${tag("Interdit", "--s8")} : ` + (e.ban.startsWith("OSM ") ? `interdit dans OpenStreetMap (${esc(e.ban.slice(4))})` : esc(RT_BAN_TEXT[e.ban] || e.ban));
   else if (!e.checked) body = `${tag("Non vérifié", "--neutral")} : le cadastre n'a pas répondu pour ce chemin.`;
