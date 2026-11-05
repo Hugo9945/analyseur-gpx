@@ -138,6 +138,15 @@
     </div>
     <div id="notes"></div>
 
+    <details class="sec" id="sec-rb">
+      <summary><span class="t">Roadbook</span><span class="s">pour appli ou papier</span></summary>
+      <p class="note">Une case à chaque bifurcation : kilomètre, direction, dessin du carrefour, fin du goudron, pentes et points d'attention. Marche avec tes propres traces comme avec celles du générateur, ou seulement la section isolée.</p>
+      <div class="actions">
+        <button id="rb-out">Pour appli (GPX : DMD2, Rally Navigator, OsmAnd…)</button>
+        <button id="rb-pdf">À imprimer ou en PDF</button>
+      </div>
+    </details>
+
     <details class="sec" id="sec-moto">
       <summary><span class="t">Accès moto</span><span class="s" id="s-moto"></span></summary>
       <table class="cats" id="tab-moto"></table>
@@ -185,8 +194,6 @@
       <summary><span class="t">Exports et effacement</span></summary>
       <div class="actions">
         <button id="gpx-out">Exporter la trace (GPX)</button>
-        <button id="rb-out">Roadbook pour appli (GPX avec une case par bifurcation)</button>
-        <button id="rb-pdf">Roadbook à imprimer (PDF)</button>
         <button id="csv-alert">Exporter les points d'attention (CSV)</button>
         <button id="csv-parc">Exporter les parcelles (CSV)</button>
         <button id="clear">Effacer cette trace</button>
@@ -204,7 +211,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.1.0/turf.min.js"></script>
-<script src="app.js?v=10"></script>
-<script src="route.js?v=15"></script>
+<script src="app.js?v=11"></script>
+<script src="route.js?v=16"></script>
 </body>
 </html>
