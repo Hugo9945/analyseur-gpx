@@ -363,7 +363,9 @@ function roadbook(S, roads) {
     const paved = (s) => s.voie === "revetue" || s.voie === "cyclable";
     const kind = !pOut ? null : paved(sOut) ? (paved(sIn) ? "route" : "reprendre le goudron") : pOut.nature === "Chemin" ? "chemin de terre" : "chemin empierré";
     if (kind) notes.push(`${kind}${name ? ` « ${name} »` : ""}${!paved(sOut) && paved(sIn) ? " (fin du goudron)" : ""}`);
-    cases.push({ i: first.i, p: first.n.p, at: S[first.i].at, txt, arrow, notes, ways: others.length + 2 });
+    const round = g.some((h) => h.n.arms.some((a) => a.f.properties.nature === "Rond-point"));
+    cases.push({ i: first.i, p: first.n.p, at: S[first.i].at, txt, arrow, notes, turn, round, inPaved: paved(sIn), outPaved: paved(sOut),
+      arms: others.map((a) => ({ t: turnOf(bin, a.b), dirt: ["Chemin", "Route empierrée"].includes(a.f.properties.nature) })) });
   }
 
   // points d'attention et fortes pentes jusqu'à la case suivante
@@ -404,6 +406,57 @@ function roadbookGpx(name, S, cases) {
   const pt = (s) => `<trkpt lat="${s.p[1].toFixed(6)}" lon="${s.p[0].toFixed(6)}">${s.z != null ? `<ele>${s.z.toFixed(1)}</ele>` : ""}</trkpt>`;
   return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Analyseur de traces GPX" xmlns="http://www.topografix.com/GPX/1/1">\n` +
     w.join("") + `<trk><name>${esc(name)}</name>${lines.map((l) => `<trkseg>${l.pts.map(pt).join("")}</trkseg>`).join("")}</trk>\n</gpx>\n`;
+}
+
+// Dessin « tulipe » d'une case : on arrive par le bas, trait plein = goudron, tirets = chemin
+function tulip(c) {
+  const cx = 50, cy = 54, R = 40;
+  const pt = (t, r) => [cx + r * Math.sin(t * rad), cy - r * Math.cos(t * rad)].map((v) => v.toFixed(1));
+  const line = (x2, y2, w, color, dirt) => `<line x1="${cx}" y1="${cy}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${w}" stroke-linecap="round"${dirt ? ` stroke-dasharray="${w + 2} ${w}"` : ""}/>`;
+  let s = "";
+  for (const a of c.arms) s += line(...pt(a.t, 32), a.dirt ? 3 : 5, "#9a9a9a", a.dirt);
+  if (c.round) s += `<circle cx="${cx}" cy="${cy}" r="9" fill="#fff" stroke="#9a9a9a" stroke-width="4"/>`;
+  s += line(cx, cy + R, 6, "#111", !c.inPaved) + `<circle cx="${cx}" cy="${cy + R}" r="6" fill="#111"/>`;
+  const [ex, ey] = pt(c.turn, R).map(Number);
+  const head = (t) => `${(ex + 13 * Math.sin(t * rad)).toFixed(1)},${(ey - 13 * Math.cos(t * rad)).toFixed(1)}`;
+  s += line(...pt(c.turn, R - 8), 6, "#111", !c.outPaved) +
+    `<polygon points="${ex},${ey} ${head(c.turn + 150)} ${head(c.turn - 150)}" fill="#111"/>`;
+  return `<svg viewBox="0 0 100 100" width="110" height="110">${s}</svg>`;
+}
+
+// Roadbook à imprimer : une page HTML ouverte dans un nouvel onglet, impression lancée (« Enregistrer en PDF »)
+function roadbookPage(name, S, cases, elev) {
+  const base = S[0].at - S[0].len / 2, end = S.at(-1), fin = end.at + end.len / 2 - base;
+  let prev = 0;
+  const rows = cases.map((c, k) => {
+    const at = c.at - base, part = at - prev;
+    prev = at;
+    const warn = c.notes.filter((n) => n.startsWith("⚠") || n.startsWith("pente") || n.startsWith("traverser"));
+    const info = c.notes.filter((n) => !warn.includes(n));
+    return `<tr><td class="n">${k + 1}</td><td class="km"><b>${km2(at)}</b><span>+${km2(part)}</span></td><td class="tu">${tulip(c)}</td>` +
+      `<td class="tx"><b>${esc(c.txt)}</b>${info.map((n) => `<div>${esc(n)}</div>`).join("")}${warn.map((n) => `<div class="w">${esc(n)}</div>`).join("")}</td></tr>`;
+  }).join("");
+  const dplus = elev ? ` · D+ ${Math.round(elev.up)} m` : "";
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(name)}</title><style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font: 13px/1.35 -apple-system, "Segoe UI", Roboto, sans-serif; color: #111; margin: 0 auto; max-width: 180mm; }
+  h1 { font-size: 18px; margin: 0 0 2px; } .sub { color: #555; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; } tr { break-inside: avoid; }
+  td { border: 1.5px solid #111; padding: 4px 8px; vertical-align: middle; }
+  .n { width: 26px; text-align: center; color: #555; } .km { width: 74px; text-align: right; }
+  .km b { display: block; font-size: 20px; } .km span { color: #555; }
+  .tu { width: 112px; padding: 0; text-align: center; } .tx b { font-size: 15px; } .tx div { margin-top: 2px; }
+  .w { font-weight: 600; color: #b3261e; } .leg { color: #555; font-size: 11px; margin: 6px 0 10px; }
+  @media screen { body { padding: 16px; } .bar { position: sticky; top: 0; background: #fff; padding: 8px 0; } }
+  @media print { .bar { display: none; } }
+  </style></head><body>
+  <div class="bar"><button onclick="print()">Imprimer ou enregistrer en PDF</button></div>
+  <h1>${esc(name)}</h1><div class="sub">${km1(fin)} km${dplus} · ${cases.length} cases · ${new Date().toLocaleDateString("fr-FR")}</div>
+  <div class="leg">On arrive par le point noir, en bas. Trait plein : goudron ; tirets : chemin. Gris : voies qu'on ne prend pas. km : total depuis le départ, puis distance depuis la case précédente.</div>
+  <table><tr><td class="n">D</td><td class="km"><b>0,00</b></td><td class="tu"></td><td class="tx"><b>Départ</b></td></tr>${rows}
+  <tr><td class="n">A</td><td class="km"><b>${km2(fin)}</b><span>+${km2(fin - prev)}</span></td><td class="tu"></td><td class="tx"><b>Arrivée</b></td></tr></table>
+  <script>addEventListener("load", () => setTimeout(print, 300));<\/script></body></html>`;
 }
 
 function saveGpx(name, lines, extra) {
@@ -1058,6 +1111,12 @@ $("gpx-out").addEventListener("click", () => {
   if (!active) return;
   const v = view(active);
   saveGpx(v.name, active.sec ? [v.samples.map((s) => [...s.p, s.z])] : v.lines);
+});
+$("rb-pdf").addEventListener("click", () => {
+  if (!active || !active.res.roads) return;
+  const v = view(active), cases = roadbook(v.samples, active.res.roads);
+  const w = window.open(URL.createObjectURL(new Blob([roadbookPage(`${v.name} roadbook`, v.samples, cases, v.elev)], { type: "text/html" })), "_blank");
+  if (!w) alert("Le navigateur a bloqué l'ouverture du roadbook : autorise les fenêtres pop-up pour ce site.");
 });
 $("rb-out").addEventListener("click", () => {
   if (!active || !active.res.roads) return;
