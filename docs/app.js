@@ -206,7 +206,9 @@ const wkt = (c) => `LINESTRING(${coords(c)})`;
 async function getJson(url, opts) {
   for (let attempt = 0; ; attempt++) {
     try {
-      const r = await fetch(url, opts);
+      // une nouvelle tentative contourne le cache du navigateur : l'IGN renvoie parfois une erreur passagère
+      // (400, 5xx) qu'il garde en cache, et toutes les tentatives suivantes la reliraient sans rien demander
+      const r = await fetch(url, attempt ? { ...opts, cache: "reload" } : opts);
       if (!r.ok) throw new Error(`${new URL(url).host} ${r.status}`);
       return await r.json();
     } catch (e) {
