@@ -2,10 +2,12 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Analyseur de traces GPX</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="style.css?v=4">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -14,24 +16,48 @@
 <meta name="theme-color" content="#2a78d6">
 </head>
 <body>
-<aside id="panel">
-  <header>
-    <div class="head">
-      <h1>Analyseur de traces GPX</h1>
-      <a class="btn" href="notice.pdf" target="_blank" rel="noopener">Notice</a>
-    </div>
-    <p class="sub">Moto enduro et trail : accès, type de voie, revêtement, pentes, zones protégées et foncier traversé</p>
+<main>
+  <div id="map"></div>
+  <div id="maphint" class="maphint" hidden></div>
+  <div class="mapctl" role="group" aria-label="Couleur de la trace">
+    <button data-mode="moto" class="on">Moto</button>
+    <button data-mode="surf">Revêtement</button>
+    <button data-mode="voie">Voie</button>
+    <button data-mode="fonc">Foncier</button>
+  </div>
+  <button id="panel-open" class="fab" hidden aria-label="Afficher le panneau"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+</main>
+
+<aside id="panel" data-tab="an" data-snap="half">
+  <div class="grab" id="grab" aria-hidden="true"><span></span></div>
+  <header class="brand">
+    <img src="icon.svg" alt="" width="34" height="34">
+    <div class="brand-t"><h1>Analyseur GPX</h1><p>Moto enduro et trail</p></div>
+    <a class="btn ghost" href="notice.pdf" target="_blank" rel="noopener">Notice</a>
+    <button id="panel-close" class="icon-btn" aria-label="Replier le panneau"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
   </header>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="an" class="on"><svg viewBox="0 0 24 24"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg><span>Analyser</span></button>
+    <button role="tab" data-tab="rt"><svg viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5"/></svg><span>Itinéraire</span></button>
+    <button role="tab" data-tab="cp"><svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Zm0 0v14m6-12v14"/></svg><span>Chemins</span></button>
+  </nav>
 
-  <label id="drop" for="file">
-    <input type="file" id="file" multiple>
-    <strong>Dépose un ou plusieurs fichiers .gpx</strong>
-    <span>ou clique pour les choisir</span>
-  </label>
-  <p class="privacy">Rien n'est conservé : les traces sont analysées dans ton navigateur, jamais enregistrées ni envoyées à un serveur du site, et elles disparaissent quand tu cliques sur « Effacer » ou fermes la page.</p>
+  <div class="body" id="panel-body">
+  <section class="pane" id="pane-an">
+    <p class="lead">Accès, type de voie, revêtement, pentes, zones protégées et foncier traversé.</p>
+    <label id="drop" for="file">
+      <input type="file" id="file" multiple>
+      <span class="drop-ic"><svg viewBox="0 0 24 24"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg></span>
+      <strong>Dépose tes fichiers .gpx</strong>
+      <span>ou touche ici pour les choisir</span>
+    </label>
+    <p class="privacy">Rien n'est conservé : les traces sont analysées dans ton navigateur, jamais enregistrées ni envoyées à un serveur du site, et elles disparaissent quand tu cliques sur « Effacer » ou fermes la page.</p>
+  </section>
 
-  <details class="sec rt" id="rt">
-    <summary><span class="t">Créer un itinéraire</span><span class="s">De A à B ou en boucle, par le plus de chemins a priori autorisés</span></summary>
+  <section class="pane" id="pane-rt" hidden>
+    <p class="lead">De A à B ou en boucle, par le plus de chemins a priori autorisés.</p>
+    <div class="card">
+
     <div class="seg" id="rt-mode">
       <button data-mode="ab" class="on">De A à B</button>
       <button data-mode="loop">Boucle depuis A</button>
@@ -41,29 +67,34 @@
       <button id="rt-b">Placer B</button>
     </div>
     <label class="rt-pref" id="rt-loop-opts" hidden>
-      <span>Distance visée : <b id="rt-km-v">40 km</b></span>
+      <span>Distance visée <b id="rt-km-v">40 km</b></span>
       <input type="range" id="rt-km" min="10" max="100" step="5" value="40">
     </label>
     <label class="rt-pref">
-      <span>Préférence : <b id="rt-pref-v">le plus de chemins</b></span>
+      <span>Préférence <b id="rt-pref-v">le plus de chemins</b></span>
       <input type="range" id="rt-pref" min="0" max="1" step="0.1" value="1">
       <span class="rt-ends"><span>Plus court</span><span>Max de chemins</span></span>
     </label>
-    <label class="check"><input type="checkbox" id="rt-strict"> Prudence : éviter aussi les chemins en limite de parcelle privée</label>
-    <label class="check"><input type="checkbox" id="rt-expl"> Autoriser les chemins d'exploitation (en orange : ouverts sauf panneau ou barrière)</label>
+    <label class="toggle"><span><b>Prudence</b><small>Éviter aussi les chemins en limite de parcelle privée</small></span><input type="checkbox" id="rt-strict"></label>
+    <label class="toggle"><span><b>Chemins d'exploitation</b><small>Les autoriser (en orange : ouverts sauf panneau ou barrière)</small></span><input type="checkbox" id="rt-expl"></label>
     <div class="actions">
       <button id="rt-go" class="primary" disabled>Calculer l'itinéraire</button>
       <button id="rt-again" hidden>↻ Nouvelle trace</button>
       <button id="rt-avoid" hidden>Éviter les points d'attention</button>
     </div>
+    </div>
+    <details class="more"><summary>Comment ça marche</summary>
     <p class="note">Écarte les sentiers, pistes cyclables, voies privées ou réservées aux ayants droit, les chemins des réserves (IGN) et les chemins qui traversent une parcelle privée (cadastre). L'itinéraire est ensuite analysé comme une trace ; les interdictions OpenStreetMap, connues plus tard, s'affichent en rouge : « Éviter les points d'attention » recalcule sans elles.</p>
-  </details>
+      </details>
+  </section>
 
-  <details class="sec rt" id="cp">
-    <summary><span class="t">Carte des chemins publics</span><span class="s">Tous les chemins autour d'un point : publics en vert, privés en rouge</span></summary>
+  <section class="pane" id="pane-cp" hidden>
+    <p class="lead">Tous les chemins autour d'un point : publics en vert, d'exploitation en orange, privés en rouge.</p>
+    <div class="card">
+
     <div class="rt-pts"><button id="cp-pick">Placer le centre</button></div>
     <label class="rt-pref">
-      <span>Rayon : <b id="cp-v">10 km</b></span>
+      <span>Rayon <b id="cp-v">10 km</b></span>
       <input type="range" id="cp-km" min="5" max="30" step="5" value="10">
     </label>
     <div class="actions">
@@ -72,13 +103,16 @@
       <button id="cp-clear" hidden>Effacer la carte</button>
     </div>
     <p class="note" id="cp-info" hidden></p>
+    </div>
+    <details class="more"><summary>Comment ça marche</summary>
     <p class="note">Chaque chemin est vérifié au cadastre : environ 1 min pour 10 km de rayon, 5 min pour 30 km. Touche un chemin pour savoir pourquoi il est vert ou rouge. L'export GPX s'importe comme calque dans GPX Studio pour tracer toi-même.</p>
-  </details>
+      </details>
+  </section>
 
   <div id="status" hidden></div>
 
   <section id="traces" hidden>
-    <h2>Traces</h2>
+    <h2>Mes traces</h2>
     <div id="trace-list" class="chips"></div>
     <div class="scroll-x">
       <table id="compare" class="compare" hidden><thead></thead><tbody></tbody></table>
@@ -158,22 +192,12 @@
       <p class="disclaimer">Indicateur, pas un avis juridique. Les véhicules à moteur sont interdits hors des voies ouvertes à la circulation publique (art. L362-1 du code de l'environnement) ; un maire ou un préfet peut aussi fermer un chemin rural par arrêté, ce qu'aucune base ne recense : vérifier la signalisation sur place. Le nom des propriétaires particuliers n'est pas public : une parcelle absente du fichier des personnes morales est classée « particulier (probable) ». Le revêtement vient d'OpenStreetMap, souvent incomplet sur les chemins.</p>
     </details>
   </section>
-</aside>
-
-<main>
-  <div id="map"></div>
-  <div id="maphint" class="maphint" hidden></div>
-  <div class="mapctl" role="group" aria-label="Couleur de la trace">
-    <button data-mode="moto" class="on">Moto</button>
-    <button data-mode="surf">Revêtement</button>
-    <button data-mode="voie">Voie</button>
-    <button data-mode="fonc">Foncier</button>
   </div>
-</main>
+</aside>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.1.0/turf.min.js"></script>
-<script src="app.js?v=6"></script>
-<script src="route.js?v=10"></script>
+<script src="app.js?v=7"></script>
+<script src="route.js?v=11"></script>
 </body>
 </html>

@@ -631,7 +631,7 @@ function sectionRes(res, i, j) {
 const $ = (id) => document.getElementById(id);
 const css =(v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const map = L.map("map", { zoomControl: false }).setView([46.6, 2.5], 6);
-L.control.zoom({ position: "bottomleft" }).addTo(map); // le haut est réservé aux boutons de couleur
+L.control.zoom({ position: "bottomright" }).addTo(map); // le haut est réservé aux boutons de couleur, la gauche au panneau
 const wmts = (layer, fmt = "image/png", style = "normal") => L.tileLayer(
   `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${layer}&STYLE=${encodeURIComponent(style)}` +
   `&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=${fmt}`,
@@ -640,6 +640,72 @@ const plan = wmts("GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2").addTo(map);
 const ortho = wmts("ORTHOIMAGERY.ORTHOPHOTOS", "image/jpeg");
 const cadastre = wmts("CADASTRALPARCELS.PARCELLAIRE_EXPRESS", "image/png", "PCI vecteur");
 L.control.layers({ "Plan IGN": plan, "Photo aérienne": ortho }, { "Cadastre": cadastre }, { position: "bottomright" }).addTo(map);
+
+// ---------- Panneau : onglets, repli (ordinateur), tiroir en bas (téléphone) ----------
+const panel = $("panel"), phone = window.matchMedia("(max-width: 800px)");
+function setTab(k) {
+  panel.dataset.tab = k;
+  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === k));
+  for (const p of ["an", "rt", "cp"]) $(`pane-${p}`).hidden = p !== k;
+  if (panel.dataset.snap === "peek") sheetTo("half");
+}
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
+
+// tiroir : trois crans (replié = en-tête et onglets seuls, moitié d'écran, plein écran)
+const sheetVis = (snap) => snap === "full" ? panel.offsetHeight
+  : snap === "half" ? Math.min(panel.offsetHeight, Math.round(innerHeight * 0.5)) : $("panel-body").offsetTop + 4;
+const sheetCur = () => parseFloat(panel.style.getPropertyValue("--sheet-y")) || 0;
+function sheetSet(y) {
+  panel.style.setProperty("--sheet-y", `${y}px`);
+  document.documentElement.style.setProperty("--sheet-vis", `${Math.min(panel.offsetHeight - y, innerHeight * 0.5)}px`);
+}
+function sheetTo(snap) {
+  if (!phone.matches) return;
+  panel.dataset.snap = snap;
+  sheetSet(panel.offsetHeight - sheetVis(snap));
+}
+// sur téléphone, montre la carte (pour toucher un point, voir un tronçon)
+function showMap() { if (phone.matches) sheetTo("peek"); }
+
+let drag = null;
+for (const el of [$("grab"), panel.querySelector(".brand"), panel.querySelector(".tabs")])
+  el.addEventListener("pointerdown", (e) => { if (phone.matches) drag = { el, y0: e.clientY, t0: sheetCur(), moved: false }; });
+window.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const dy = e.clientY - drag.y0;
+  if (!drag.moved && Math.abs(dy) < 6) return;
+  if (!drag.moved) { drag.moved = true; panel.classList.add("dragging"); }
+  sheetSet(Math.max(0, Math.min(panel.offsetHeight - sheetVis("peek"), drag.t0 + dy)));
+});
+window.addEventListener("pointerup", () => {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  panel.classList.remove("dragging");
+  if (!d.moved) {
+    if (d.el.id === "grab") sheetTo(panel.dataset.snap === "full" ? "half" : panel.dataset.snap === "half" ? "full" : "half");
+    return;
+  }
+  // un glissé n'est pas un toucher d'onglet
+  window.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); }, { capture: true, once: true });
+  setTimeout(() => window.dispatchEvent(new Event("click")), 0);
+  const vis = panel.offsetHeight - sheetCur();
+  sheetTo(["peek", "half", "full"].reduce((x, y) => (Math.abs(sheetVis(y) - vis) < Math.abs(sheetVis(x) - vis) ? y : x)));
+});
+window.addEventListener("resize", () => (phone.matches ? sheetTo(panel.dataset.snap) : panel.style.removeProperty("--sheet-y")));
+sheetTo("half");
+
+$("panel-close").addEventListener("click", () => { panel.classList.add("closed"); $("panel-open").hidden = false; });
+$("panel-open").addEventListener("click", () => { panel.classList.remove("closed"); $("panel-open").hidden = true; });
+
+// cadrages : la carte est sous le panneau, on cadre dans la partie visible
+const fitBounds0 = map.fitBounds.bind(map);
+map.fitBounds = (b, o = {}) => {
+  const p = L.point(o.padding || [0, 0]), tl = [p.x, p.y + 56], br = [p.x, p.y];
+  if (phone.matches) br[1] += Math.min(panel.offsetHeight - sheetCur(), innerHeight * 0.6);
+  else if (!panel.classList.contains("closed")) tl[0] += panel.offsetWidth + 14;
+  return fitBounds0(b, { ...o, paddingTopLeft: tl, paddingBottomRight: br });
+};
 
 const layers = { moto: L.layerGroup(), voie: L.layerGroup(), surf: L.layerGroup(), fonc: L.layerGroup() };
 const others = L.layerGroup().addTo(map);
@@ -796,7 +862,7 @@ function startPicking() {
   hint("Touche le point de départ sur la trace");
   drawSection(false); // met à jour les boutons
   secLayer.clearLayers();
-  if (window.matchMedia("(max-width: 800px)").matches) $("map").scrollIntoView({ behavior: "smooth" });
+  showMap();
 }
 
 function stopPicking() {
@@ -948,7 +1014,7 @@ function renderAlerts(res) {
       setMode("moto");
       highlight = L.polyline(a.latlngs, { color: css("--text-primary"), weight: 9, opacity: 0.35 }).addTo(map);
       map.fitBounds(highlight.getBounds(), { padding: [60, 60], maxZoom: 17 });
-      if (window.matchMedia("(max-width: 800px)").matches) $("map").scrollIntoView({ behavior: "smooth" });
+      showMap();
     });
     tab.append(tr);
   }
@@ -1050,6 +1116,7 @@ function select(t) {
 
 function renderTraces() {
   $("traces").hidden = !traces.length;
+  panel.classList.toggle("has-traces", traces.length > 0); // zone de dépôt compacte au-dessus des résultats
   $("trace-list").innerHTML = "";
   for (const t of traces) {
     const b = document.createElement("button");

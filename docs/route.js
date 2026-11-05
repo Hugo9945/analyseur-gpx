@@ -496,7 +496,7 @@ function rtPick(k) {
   $("map").classList.toggle("picking", !!rt.pick);
   hint(rt.pick ? `Touche la carte pour placer ${k === "c" ? "le centre de la carte des chemins" : k.toUpperCase()}` : "");
   rtDraw();
-  if (rt.pick && window.matchMedia("(max-width: 800px)").matches) $("map").scrollIntoView({ behavior: "smooth" });
+  if (rt.pick) showMap();
 }
 
 map.on("click", (e) => {
@@ -508,6 +508,7 @@ map.on("click", (e) => {
   $("map").classList.remove("picking");
   hint("");
   rtDraw();
+  if (panel.dataset.snap === "peek") sheetTo("half"); // point placé : retour aux réglages
 });
 map.on("popupopen", () => rt.pick && map.closePopup());
 
