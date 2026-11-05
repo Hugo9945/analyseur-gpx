@@ -414,7 +414,7 @@ function roadbookGpx(name, S, cases) {
 }
 
 // Dessin « tulipe » d'une case, conventions rallye : on part du point en bas ; goudron = double trait,
-// piste = trait plein, chemin de terre = pointillés ; notre trajet en noir épais, les autres voies plus fines
+// piste = trait plein, chemin de terre = pointillés ; notre trajet en trait épais, les autres voies en trait fin
 function tulip(c) {
   const cx = 50, cy = 56, R = 40;
   const pt = (t, r) => [cx + r * Math.sin(t * rad), cy - r * Math.cos(t * rad)];
@@ -425,8 +425,8 @@ function tulip(c) {
     return L(w, col);
   };
   let s = "";
-  for (const a of c.arms) s += seg([cx, cy], pt(a.t, 34), a.type, 3, "#555");
-  if (c.round) s += `<circle cx="${cx}" cy="${cy}" r="10" fill="#fff" stroke="#555" stroke-width="4"/>`;
+  for (const a of c.arms) s += seg([cx, cy], pt(a.t, 34), a.type, 2.5, "#000");
+  if (c.round) s += `<circle cx="${cx}" cy="${cy}" r="10" fill="#fff" stroke="#000" stroke-width="3"/>`;
   s += seg([cx, cy + R], [cx, cy], c.inT, 5, "#000") + `<circle cx="${cx}" cy="${cy + R}" r="6" fill="#000"/>`;
   const e = pt(c.turn, R), head = (t) => pt(c.turn, R).map((v, k) => (v + (k ? -1 : 1) * 14 * (k ? Math.cos(t * rad) : Math.sin(t * rad))).toFixed(1)).join(",");
   s += seg([cx, cy], pt(c.turn, R - 10), c.outT, 5, "#000") +
@@ -442,25 +442,26 @@ const RB_TYPE = { gdr: "Gdr", piste: "P", terre: "Ch" };
 function roadbookPage(name, S, cases, elev) {
   const base = S[0].at - S[0].len / 2, end = S.at(-1), fin = end.at + end.len / 2 - base;
   let prev = 0;
-  const row = (n, at, part, tul, notes, danger = 0, stop = false) =>
-    `<div class="case${danger ? " dg" : ""}"><div class="km"><b>${km2(at)}</b>${part == null ? "" : `<span class="pt">${km2(part)}</span>`}${stop ? `<span class="stop">S</span>` : ""}</div>` +
-    `<div class="tu">${tul}<span class="no">${n}</span>${danger ? `<span class="ex">${"!".repeat(danger)}</span>` : ""}</div><div class="tx">${notes}</div></div>`;
+  const ex = (n) => `<span class="ex">${"!".repeat(n)}</span>`;
+  const row = (n, at, part, tul, notes, danger = 0, cap = null) =>
+    `<div class="case${danger === 3 ? " d3" : ""}"><div class="km"><b>${km2(at)}</b>${part == null ? "" : `<span class="pt">${km2(part)}</span>`}` +
+    `${cap == null ? "" : `<span class="cap">CAP ${String(cap).padStart(3, "0")}</span>`}</div>` +
+    `<div class="tu">${tul}<span class="no">${n}</span></div><div class="tx">${danger ? ex(danger) : ""}${notes}</div></div>`;
   const out = [row("D", 0, null, "", `<b>DÉPART</b>`)];
   cases.forEach((c, k) => {
     const at = c.at - base, part = at - prev;
     prev = at;
     const L = [];
-    if (c.inT === "gdr" && c.outT !== "gdr") L.push(`<b>FIN Gdr</b>`);
-    if (c.inT !== "gdr" && c.outT === "gdr") L.push(`<b>Gdr</b>`);
+    if (c.inT === "gdr" && c.outT !== "gdr") L.push("Fin Gdr");
+    if (c.inT !== "gdr" && c.outT === "gdr") L.push("Gdr");
     if (c.round) L.push("RP");
+    if (c.crossed) L.push(`<b>X ${esc(c.crossed)}</b>`);
     if (c.fork) L.push("Bif");
-    L.push(`${RB_TYPE[c.outT]}${c.name ? ` ${esc(c.name)}` : ""}`);
-    if (c.crossed) L.push(`<b class="r">Trav. ${esc(c.crossed)}</b>`);
-    if (c.steep >= 0.15) L.push(`<b class="r">Pte ${Math.round(c.steep * 100)} %</b>`);
-    if (c.warn.length) L.push(`<b class="r">${esc(c.warn.join(", ").toUpperCase())}</b>`);
-    L.push(`<span class="cap">CAP ${String(c.cap).padStart(3, "0")}</span>`);
+    L.push(c.outT === "gdr" ? (c.name ? esc(c.name) : "") : `P${c.name ? " " + esc(c.name) : ""}`);
+    if (c.steep >= 0.15) L.push(`Pte ${Math.round(c.steep * 100)} %`);
+    if (c.warn.length) L.push(`<b>${esc(c.warn.join(", ").toUpperCase())}</b>`);
     const danger = c.warn.length ? 3 : c.steep >= 0.2 || c.crossed ? 2 : c.steep >= 0.15 ? 1 : 0;
-    out.push(row(k + 1, at, part, tulip(c), `<div class="dir">${RB_DIR(c.turn)}</div>` + L.map((x) => `<div>${x}</div>`).join(""), danger, !!c.crossed));
+    out.push(row(k + 1, at, part, tulip(c), [...new Set(L.filter(Boolean))].map((x) => `<div>${x}</div>`).join(""), danger, c.cap));
   });
   out.push(row("A", fin, fin - prev, "", `<b>ARRIVÉE</b>`));
   const dplus = elev ? ` · D+ ${Math.round(elev.up)} m` : "";
@@ -474,22 +475,22 @@ function roadbookPage(name, S, cases, elev) {
   .rb { padding-top: 2px; }
   html, body { background: #fff; }
   .case > div { border-right: 1.5px solid #000; position: relative; } .case > div:last-child { border-right: 0; }
-  .dg { outline: 3px solid #d0021b; outline-offset: -5px; z-index: 1; }
+  .d3 { outline: 3px solid #d0021b; outline-offset: -5px; z-index: 1; }
   .km b { position: absolute; left: 3mm; top: 2mm; font-size: 30px; letter-spacing: -0.5px; }
   .km .pt { position: absolute; left: 3mm; bottom: 3mm; font-size: 17px; border: 1.5px solid #000; padding: 1px 5px; }
-  .km .stop { position: absolute; right: 3mm; bottom: 3mm; width: 9mm; height: 9mm; border-radius: 50%; background: #d0021b; color: #fff; font: bold 20px/9mm Arial; text-align: center; }
+  .km .cap { position: absolute; right: 3mm; bottom: 3.5mm; font-size: 12px; }
   .tu svg { position: absolute; inset: 2mm; width: calc(100% - 4mm); height: calc(100% - 4mm); }
   .tu .no { position: absolute; right: 2mm; top: 1.5mm; font-size: 11px; border: 1.2px solid #000; border-radius: 50%; min-width: 5.5mm; height: 5.5mm; line-height: 5.2mm; text-align: center; background: #fff; }
-  .tu .ex { position: absolute; left: 2mm; top: 0; color: #d0021b; font: bold 26px Arial; letter-spacing: -2px; }
-  .tx { padding: 2mm 3mm; font-size: 15px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 1px; }
-  .tx .dir { font-size: 22px; font-weight: bold; } .tx .r { color: #d0021b; } .tx .cap { font-size: 11px; color: #444; margin-top: 2px; }
+  .tx { padding: 2mm 3mm; font-size: 17px; text-align: center; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+  .tx .ex { color: #d0021b; font: bold 28px/1 Arial; letter-spacing: -1px; }
   @media screen { body { padding: 12px 0; } .bar { position: sticky; top: 0; background: #fff; padding: 6px 0; z-index: 2; } }
   @media print { .bar { display: none; } }
   </style></head><body>
   <div class="bar"><button onclick="print()">Imprimer ou enregistrer en PDF</button></div>
   <h1>${esc(name)}</h1><div class="sub">${km1(fin)} km${dplus} · ${cases.length} cases · ${new Date().toLocaleDateString("fr-FR")}</div>
-  <div class="leg">km total en gros, partiel dans le cadre. Dessin : départ au point noir ; double trait = goudron, trait plein = piste empierrée, pointillés = chemin de terre ; en gris, les voies qu'on ne prend pas.
-  TD tout droit · G / D gauche / droite · Gdr goudron · P piste · Ch chemin de terre · RP rond-point · Bif bifurcation · <b style="color:#d0021b">S</b> traversée de route · Pte pente · ! à !!! danger (!!! : passage privé ou interdit signalé) · CAP en degrés.</div>
+  <div class="leg">Colonne 1 : km total, partiel encadré, CAP. Colonne 2, tulipe : départ au point noir ; double trait = goudron, trait plein = piste empierrée, pointillés = chemin de terre ; en trait fin, les voies qu'on ne prend pas.
+  Gdr goudron · Fin Gdr fin du goudron · P piste · X croisement d'une route · RP rond-point · Bif bifurcation · Pte pente · CAP direction de sortie en degrés.
+  Dangers en rouge : ! attention · !! prudence (traversée de départementale, pente de 20 % et plus) · !!! danger, case encadrée (passage privé ou interdit signalé).</div>
   <div class="rb">${out.join("")}</div>
   <script>addEventListener("load", () => setTimeout(print, 300));<\/script></body></html>`;
 }
