@@ -73,6 +73,44 @@ function rtFactor(p, pref) {
   return 1 + RT_PREF_GAIN * pref * (base - 1);
 }
 
+// Intérêt d'un chemin pour la moto, de 0 à 1 : virages et dénivelé, mesurés sur la géométrie BD TOPO (qui porte
+// l'altitude de chaque point), rééchantillonnée tous les RT_RESAMPLE m pour ignorer les petites irrégularités du tracé.
+// Un intérêt de 1 : RT_TURN_FULL degrés de virage par km (un virage serré tous les 100 m), ou RT_CLIMB_FULL m de
+// montées et descentes par km au-delà de RT_CLIMB_NOISE (les irrégularités du modèle de terrain sur le plat).
+const RT_RESAMPLE = 20, RT_TURN_FULL = 800, RT_CLIMB_FULL = 50, RT_CLIMB_NOISE = 10;
+const RT_TECH_GAIN = 0.5;   // curseur « Tracé » au maximum : un chemin d'intérêt 1 coûte moitié moins qu'un chemin plat et droit
+const RT_TECH_SCORE = 3;    // poids de l'intérêt moyen dans la note d'une boucle
+function interest(c, len) {
+  if (len < 60) return 0;
+  const z = c.every((p) => p.length > 2 && p[2] > -500);
+  const pts = [c[0]];
+  let acc = 0;
+  for (let i = 1; i < c.length; i++) {
+    let a = c[i - 1];
+    const b = c[i];
+    let d = dist(a, b);
+    while (acc + d >= RT_RESAMPLE && d > 0) {
+      const t = (RT_RESAMPLE - acc) / d;
+      a = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, z ? a[2] + (b[2] - a[2]) * t : 0];
+      pts.push(a); d = dist(a, b); acc = 0;
+    }
+    acc += d;
+  }
+  pts.push(c.at(-1));
+  let turn = 0, climb = 0;
+  const head = (p, q) => Math.atan2(q[1] - p[1], (q[0] - p[0]) * Math.cos(p[1] * rad));
+  for (let i = 1; i < pts.length - 1; i++) {
+    let d = Math.abs(head(pts[i], pts[i + 1]) - head(pts[i - 1], pts[i]));
+    if (d > Math.PI) d = 2 * Math.PI - d;
+    if (d > 8 * rad) turn += d / rad; // en deçà de 8°, bruit de numérisation
+  }
+  if (z) for (let i = 1; i < pts.length; i++) climb += Math.abs(pts[i][2] - pts[i - 1][2]);
+  const km = len / 1000;
+  return 1 - (1 - Math.min(1, turn / km / RT_TURN_FULL)) * (1 - Math.min(1, Math.max(0, climb / km - RT_CLIMB_NOISE) / RT_CLIMB_FULL));
+}
+// coût d'un chemin selon le curseur « Tracé » (rt.tech de 0 à 1)
+const rtTech = (e) => (e.int ? 1 - RT_TECH_GAIN * (rt.tech || 0) * e.int : 1);
+
 // Part des chemins non contrôlés au cadastre qui s'avèrent publics, par type : a priori, puis apprise au fil des
 // contrôles dans le secteur (de 40 à 70 % selon les régions pour un chemin sans nom). Un chemin nommé ou balisé
 // en randonnée est presque toujours un chemin rural.
@@ -118,6 +156,7 @@ function buildGraph(feats, zones) {
     for (let i = 1; i < part.length; i++) len += dist(part[i - 1], part[i]);
     const mid = part[part.length >> 1];
     const e = { f, coords: part, len, mid, ban: rtBan(f.properties, inZone, mid), kind: rtKind(f.properties) };
+    if (["Chemin", "Route empierrée"].includes(f.properties.nature)) e.int = interest(part, len);
     const v = rt.verdict.get(edgeKey(e));
     if (v) {
       e.checked = true; e.ban = e.ban || v.ban; e.why = v.why; e.expl = v.expl;
@@ -190,7 +229,8 @@ function nearestNode(g, p, avoid, mask) {
 // (aussi quand le coût dépasserait maxCost : la recherche s'arrête sans parcourir tout le réseau)
 function shortestPath(g, from, to, pref, avoid, used = new Set(), maxCost = Infinity) {
   const n = g.xy.length, cost = new Float64Array(n).fill(Infinity), prev = new Array(n);
-  const goal = g.xy[to], h = (i) => dist(g.xy[i], goal); // admissible : aucun tronçon ne coûte moins de 1 par mètre
+  // admissible : aucun tronçon ne coûte moins de 1 par mètre (moins le gain du curseur « Tracé »)
+  const goal = g.xy[to], hk = 1 - RT_TECH_GAIN * (rt.tech || 0), h = (i) => hk * dist(g.xy[i], goal);
   const heap = new Heap();
   cost[from] = 0; heap.push(h(from), from);
   while (heap.size && heap.k[0] <= maxCost) {
@@ -198,7 +238,7 @@ function shortestPath(g, from, to, pref, avoid, used = new Set(), maxCost = Infi
     if (u === to) break;
     for (const s of g.adj[u]) {
       if (s.e.ban || avoid.has(s.e)) continue;
-      const c = cost[u] + s.e.len * (rtFactor(s.e.f.properties, pref) * rtDoubt(s.e) + (used.has(s.e) ? RT_REUSE : 0));
+      const c = cost[u] + s.e.len * (rtFactor(s.e.f.properties, pref) * rtDoubt(s.e) * rtTech(s.e) + (used.has(s.e) ? RT_REUSE : 0));
       if (c < cost[s.to]) { cost[s.to] = c; prev[s.to] = s; heap.push(c + h(s.to), s.to); }
     }
   }
@@ -392,7 +432,9 @@ function dirtSectors(g, ok, gate) {
   for (const [r, l] of len) {
     if (l < RT_SECTOR_MIN) continue;
     const [u] = far(seed.get(r)), [v, t] = far(u);
-    if (u !== v && gate[u] && gate[v]) out.push({ u, v, t, pu: g.xy[u], pv: g.xy[v], es: own.get(r) });
+    // intérêt moyen du secteur (virages, dénivelé), pondéré par la longueur
+    const es = own.get(r), int = [...es].reduce((x, e) => x + e.len * (e.int || 0), 0) / l;
+    if (u !== v && gate[u] && gate[v]) out.push({ u, v, t, int, pu: g.xy[u], pv: g.xy[v], es });
   }
   return out;
 }
@@ -415,7 +457,7 @@ function loopCandidate(g, start, a, sectors, cross, target, pref, theta, n, scal
       let bs = 0, sec = null;
       if (pref) for (const z of sectors) {
         if (used.has(z)) continue;
-        const d = Math.min(dist(z.pu, p), dist(z.pv, p)), sc = z.t * (1 - (0.5 * d) / rs);
+        const d = Math.min(dist(z.pu, p), dist(z.pv, p)), sc = z.t * (1 + (rt.tech || 0) * z.int) * (1 - (0.5 * d) / rs);
         if (d <= rs && sc > bs) { bs = sc; sec = z; }
       }
       if (!sec) {
@@ -457,7 +499,9 @@ async function planLoop(g, a, target, pref, seed, prev, progress = () => {}) {
   const gate = deg.map((d, i) => (d && g.adj[i].some((s) => !s.e.ban && !rt.avoid.has(s.e) && !isDirt(s.e)) ? 1 : 0));
   const sectors = pref ? dirtSectors(g, deg.map((d) => (d >= 2 ? 1 : 0)), gate) : [];
   // le plus de chemins (et pas plus de RT_MAX_ROAD de route), la bonne distance, pas d'aller-retour sur un même bout
-  const score = (l, d = dirtExpected(l.path)) => (pref ? d - 3 * Math.max(0, 1 - d - RT_MAX_ROAD) : 0)
+  // intérêt moyen de la boucle (chemins seulement, routes à 0), compté si le curseur « Tracé » le demande
+  const fun = (p) => p.edges.reduce((x, e) => x + e.len * (e.int || 0), 0) / p.len;
+  const score = (l, d = dirtExpected(l.path)) => (pref ? d - 3 * Math.max(0, 1 - d - RT_MAX_ROAD) : 0) + RT_TECH_SCORE * (rt.tech || 0) * fun(l.path)
     - 2 * Math.abs(l.path.len / target - 1) - 8 * Math.max(0, Math.abs(l.path.len / target - 1) - 0.1) - 10 * l.path.dup / l.path.len - (l.path.dup >= RT_DUP_MAX ? 1 : 0);
   // la boucle réparée est gardée tant qu'elle reste à 10 % de la distance visée, sans aller-retour
   const fixed = prev && loopCandidate(g, start, a, sectors, cross, target, pref, prev.theta, prev.n, prev.scale, score);
@@ -552,6 +596,7 @@ async function rtRun(round = 0) {
   const { a, b } = rt, loop = rt.mode === "loop", pref = +$("rt-pref").value;
   let chained = false; // un contournement prend le relais : les boutons restent bloqués
   rt.busy = true;
+  rt.tech = +$("rt-tech").value;
   // la carte des chemins publics s'efface pour laisser lire l'itinéraire (ses verdicts restent acquis)
   if (rt.scan) { rt.scan = null; rtShowScan(); }
   rtDraw();
@@ -861,6 +906,7 @@ $("cp-gpx").addEventListener("click", () => {
   saveGpx(`Chemins publics ${rt.scan.r / 1000} km`, joinEdges(scanPublic()).map(thin),
     { "Chemins d'exploitation (ouverts sauf panneau)": joinEdges(scanPublic(true)).map(thin) });
 });
+$("rt-tech").addEventListener("input", (e) => { $("rt-tech-v").textContent = e.target.value >= 0.7 ? "virages et pentes" : e.target.value <= 0.2 ? "roulant" : "un peu des deux"; });
 $("rt-pref").addEventListener("input", (e) => { $("rt-pref-v").textContent = e.target.value >= 0.7 ? "le plus de chemins" : e.target.value <= 0.3 ? "le plus court" : "équilibré"; });
 $("gpx-out").addEventListener("click", () => {
   if (!active) return;

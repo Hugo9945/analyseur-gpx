@@ -75,6 +75,11 @@
       <input type="range" id="rt-pref" min="0" max="1" step="0.1" value="1">
       <span class="rt-ends"><span>Plus court</span><span>Max de chemins</span></span>
     </label>
+    <label class="rt-pref">
+      <span>Tracé <b id="rt-tech-v">roulant</b></span>
+      <input type="range" id="rt-tech" min="0" max="1" step="0.1" value="0">
+      <span class="rt-ends"><span>Roulant</span><span>Virages et pentes</span></span>
+    </label>
     <label class="toggle"><span><b>Prudence</b><small>Éviter aussi les chemins en limite de parcelle privée</small></span><input type="checkbox" id="rt-strict"></label>
     <label class="toggle"><span><b>Chemins d'exploitation</b><small>Les autoriser (en orange : ouverts sauf panneau ou barrière)</small></span><input type="checkbox" id="rt-expl"></label>
     <div class="actions">
@@ -198,6 +203,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.1.0/turf.min.js"></script>
 <script src="app.js?v=9"></script>
-<script src="route.js?v=12"></script>
+<script src="route.js?v=13"></script>
 </body>
 </html>
