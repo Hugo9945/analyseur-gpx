@@ -720,11 +720,18 @@ map.fitBounds = (b, o = {}) => {
   return fitBounds0(b, { ...o, paddingTopLeft: tl, paddingBottomRight: br });
 };
 
-const layers = { moto: L.layerGroup(), voie: L.layerGroup(), surf: L.layerGroup(), fonc: L.layerGroup() };
+const layers = { moto: L.layerGroup(), voie: L.layerGroup(), surf: L.layerGroup(), fonc: L.layerGroup(), cmp: L.layerGroup() };
+// une couleur fixe par trace (carte, liste, tableau), distincte des couleurs d'analyse
+const TRACE_COLORS = ["#2f6fdf", "#f08c00", "#9b4dca", "#e8457c", "#0f9aa8", "#8d6e4a"];
+const dot = (t) => `<span class="dot" style="background:${t.color}"></span>`;
 const others = L.layerGroup().addTo(map);
 let casing = null, highlight = null, cursor = null, mode = "moto";
 function setMode(m) {
+  if (m === "cmp" && traces.length < 2) m = "moto";
   mode = m;
+  // mode « Traces » : toutes les traces dans leur couleur, côte à côte là où elles se superposent
+  if (m === "cmp") map.removeLayer(others); else others.addTo(map);
+  if (casing) casing.setStyle({ opacity: m === "cmp" ? 0 : 0.9 });
   document.querySelectorAll(".mapctl button").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
   for (const [k, l] of Object.entries(layers)) k === m ? l.addTo(map) : map.removeLayer(l);
 }
@@ -817,15 +824,29 @@ function drawMap(res, fit = true) {
       .bindPopup(r.s.parcel ? parcelPopup(r.s.parcel, owners) : "<b>Non cadastré</b><br>Voirie ou domaine public probable.")
       .addTo(layers.fonc);
 
+  drawCompare();
   setMode(mode);
   if (fit) map.fitBounds(casing.getBounds(), { padding: [20, 20] });
+}
+
+// Mode « Traces » : chaque trace dans sa couleur, décalée de quelques pixels (extension Leaflet polylineoffset)
+// pour que deux traces sur le même chemin restent visibles l'une à côté de l'autre
+function drawCompare() {
+  layers.cmp.clearLayers();
+  document.querySelector('.mapctl [data-mode="cmp"]').hidden = traces.length < 2;
+  const n = traces.length;
+  traces.forEach((t, k) => {
+    const ll = t.res.lines.map((l) => l.map((p) => [p[1], p[0]])), offset = (k - (n - 1) / 2) * 5, on = t === active;
+    L.polyline(ll, { color: "#fff", weight: on ? 8 : 7, opacity: 0.8, offset, interactive: false }).addTo(layers.cmp);
+    L.polyline(ll, { color: t.color, weight: on ? 5 : 4, offset }).bindTooltip(esc(t.res.name)).on("click", () => select(t)).addTo(layers.cmp);
+  });
 }
 
 function drawOthers() {
   others.clearLayers();
   for (const t of traces) if (t !== active)
-    // autres traces (dont les propositions précédentes du générateur) : tirets sombres, pour comparer
-    L.polyline(t.res.lines.map((l) => l.map((p) => [p[1], p[0]])), { color: css("--text-primary"), weight: 4, opacity: 0.75, dashArray: "8 7" })
+    // autres traces (dont les propositions précédentes du générateur) : chacune dans sa couleur
+    L.polyline(t.res.lines.map((l) => l.map((p) => [p[1], p[0]])), { color: t.color, weight: 4, opacity: 0.9 })
       .bindTooltip(esc(t.res.name)).on("click", () => select(t)).addTo(others);
 }
 
@@ -1135,7 +1156,7 @@ function renderTraces() {
   for (const t of traces) {
     const b = document.createElement("button");
     b.className = "chip" + (t === active ? " on" : "");
-    b.textContent = t.res.name;
+    b.innerHTML = dot(t) + esc(t.res.name);
     b.addEventListener("click", () => select(t));
     $("trace-list").append(b);
   }
@@ -1150,7 +1171,7 @@ function renderTraces() {
     const s = t.res.sum;
     const tr = document.createElement("tr");
     if (t === active) tr.className = "on";
-    tr.innerHTML = `<td>${esc(t.res.name)}</td><td class="num">${fmtKm(s.total)}</td><td class="num">${s.up == null ? "—" : Math.round(s.up) + " m"}</td>` +
+    tr.innerHTML = `<td>${dot(t)}${esc(t.res.name)}</td><td class="num">${fmtKm(s.total)}</td><td class="num">${s.up == null ? "—" : Math.round(s.up) + " m"}</td>` +
       [s.revetue, s.chemin, s.sentier, s.offroad, s.prive].map((v) => `<td class="num">${fmtPct(v)}</td>`).join("") +
       `<td class="num">${s.alertN} · ${s.alertKm.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} km</td>`;
     tr.addEventListener("click", () => select(t));
@@ -1169,6 +1190,8 @@ function removeTrace(t) {
   secLayer.clearLayers();
   Object.values(layers).forEach((l) => l.clearLayers());
   others.clearLayers();
+  document.querySelector('.mapctl [data-mode="cmp"]').hidden = true;
+  if (mode === "cmp") setMode("moto");
   for (const l of [casing, highlight]) if (l) map.removeLayer(l);
   casing = highlight = null;
   showCursor(null);
@@ -1210,7 +1233,8 @@ async function analyseFiles(files) {
     const prefix = files.length > 1 ? `${file.name} (${i + 1}/${files.length}) — ` : "";
     try {
       const { res, osmPromise } = await analyseTrace(file, (msg, frac) => status(prefix + msg, frac));
-      const t = { res };
+      const used = new Set(traces.map((x) => x.color));
+      const t = { res, color: TRACE_COLORS.find((c) => !used.has(c)) || TRACE_COLORS[traces.length % TRACE_COLORS.length] };
       traces.push(t);
       select(t);
       status("");

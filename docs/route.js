@@ -891,6 +891,7 @@ async function rtRun(round = 0, keep = false) {
     rt.trace.route = { edges: path.edges };
     rt.trace.onOsm = rtOsmLearn;
     // nouvelle proposition : la carte montre toutes les traces pour les comparer
+    if (keep) setMode("cmp");
     if (keep) map.fitBounds(L.latLngBounds(traces.flatMap((t) => t.res.lines.flat().map((p) => [p[1], p[0]]))), { padding: [20, 20] });
     // les points d'attention IGN et cadastre sont connus tout de suite : on les contourne sans attendre
     if (rt.trace.res.alerts.length && round < RT_AUTO_ROUNDS && (chained = rtAvoid(round + 1))) return;

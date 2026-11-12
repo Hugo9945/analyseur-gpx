@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -24,6 +24,7 @@
     <button data-mode="surf">Revêtement</button>
     <button data-mode="voie">Voie</button>
     <button data-mode="fonc">Foncier</button>
+    <button data-mode="cmp" hidden>Traces</button>
   </div>
   <button id="panel-open" class="fab" hidden aria-label="Afficher le panneau"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
 </main>
@@ -211,8 +212,9 @@
 </aside>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://unpkg.com/leaflet-polylineoffset@1.1.1/leaflet.polylineoffset.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.1.0/turf.min.js"></script>
-<script src="app.js?v=12"></script>
-<script src="route.js?v=20"></script>
+<script src="app.js?v=13"></script>
+<script src="route.js?v=21"></script>
 </body>
 </html>
