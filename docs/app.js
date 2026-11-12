@@ -723,7 +723,7 @@ map.fitBounds = (b, o = {}) => {
 const layers = { moto: L.layerGroup(), voie: L.layerGroup(), surf: L.layerGroup(), fonc: L.layerGroup(), cmp: L.layerGroup() };
 // une couleur fixe par trace (carte, liste, tableau)
 // teintes absentes des modes d'analyse (bleus des routes et des pentes, orange, vert, jaune, rose, violet, rouge, gris)
-const TRACE_COLORS = ["#1d1d1f", "#00b8d4", "#8b5a2b", "#a0c814", "#c2188f"];
+const TRACE_COLORS = ["#00b8d4", "#c2188f", "#8b5a2b", "#a0c814"];
 const dot = (t) => `<span class="dot" style="background:${t.color}"></span>`;
 const others = L.layerGroup().addTo(map);
 let casing = null, highlight = null, cursor = null, mode = "moto";
