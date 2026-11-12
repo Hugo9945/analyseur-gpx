@@ -824,7 +824,8 @@ function drawMap(res, fit = true) {
 function drawOthers() {
   others.clearLayers();
   for (const t of traces) if (t !== active)
-    L.polyline(t.res.lines.map((l) => l.map((p) => [p[1], p[0]])), { color: css("--neutral"), weight: 3, opacity: 0.8 })
+    // autres traces (dont les propositions précédentes du générateur) : tirets sombres, pour comparer
+    L.polyline(t.res.lines.map((l) => l.map((p) => [p[1], p[0]])), { color: css("--text-primary"), weight: 4, opacity: 0.75, dashArray: "8 7" })
       .bindTooltip(esc(t.res.name)).on("click", () => select(t)).addTo(others);
 }
 

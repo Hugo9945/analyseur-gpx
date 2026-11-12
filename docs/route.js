@@ -20,6 +20,7 @@ const RT_PRIV_MIN = 20;      // m en parcelle privée à partir desquels un tron
 const RT_EXPL = "chemin d'exploitation"; // tronçon sur la parcelle d'un chemin d'exploitation, écarté sauf case cochée
 const RT_FERME = "terrain public fermé"; // camp militaire, forêt domaniale, hôpital, voie ferrée… (voir parcelCat)
 const RT_CHECK_ROUNDS = 20;  // vérifications du cadastre (puis recalcul) avant l'analyse complète
+const RT_DIVERSE = 1.5;     // « Autre proposition » : pénalité par part de boucle reprise d'une proposition précédente
 const RT_EXPLORE = 8;        // premières vérifications où une boucle peut encore en remplacer une autre ; ensuite on la répare
 const RT_PROPS = "geometrie,nature,importance,prive,acces_vehicule_leger,sens_de_circulation,cpx_nature_itineraire_autre,nom_voie_ban_gauche,nom_collaboratif_gauche";
 const RT_BANNED_NATURE = new Set(["Sentier", "Escalier", "Piste cyclable", "Bac ou liaison maritime", "Type autoroutier"]);
@@ -736,8 +737,10 @@ async function planLoop(g, a, target, pref, seed, prev, progress = () => {}) {
   // le plus de chemins (et pas plus de RT_MAX_ROAD de route), la bonne distance, pas d'aller-retour sur un même bout
   // intérêt moyen de la boucle (chemins seulement, routes à 0), compté si le curseur « Tracé » le demande
   const fun = (p) => p.edges.reduce((x, e) => x + e.len * (e.int || 0), 0) / p.len;
+  // part de la boucle déjà proposée (bouton « Autre proposition ») : on cherche autre chose
+  const seen = (p) => (rt.props.length ? p.edges.reduce((x, e) => x + (rt.props.some((set) => set.has(e)) ? e.len : 0), 0) / p.len : 0);
   const score = (l, d = dirtExpected(l.path)) => (pref ? d - 3 * Math.max(0, 1 - d - RT_MAX_ROAD) : 0) + RT_TECH_SCORE * (rt.tech || 0) * fun(l.path)
-    - 2 * Math.abs(l.path.len / target - 1) - 8 * Math.max(0, Math.abs(l.path.len / target - 1) - 0.1) - 10 * l.path.dup / l.path.len - (l.path.dup >= RT_DUP_MAX ? 1 : 0);
+    - RT_DIVERSE * seen(l.path) - 2 * Math.abs(l.path.len / target - 1) - 8 * Math.max(0, Math.abs(l.path.len / target - 1) - 0.1) - 10 * l.path.dup / l.path.len - (l.path.dup >= RT_DUP_MAX ? 1 : 0);
   // la boucle réparée est gardée tant qu'elle reste à 10 % de la distance visée, sans aller-retour
   const fixed = prev && loopCandidate(g, start, a, sectors, cross, target, pref, prev.theta, prev.n, prev.scale, score);
   if (fixed && Math.abs(fixed.path.len / target - 1) <= 0.1 && fixed.path.dup < RT_DUP_MAX) return fixed;
@@ -754,7 +757,7 @@ async function planLoop(g, a, target, pref, seed, prev, progress = () => {}) {
 
 // ---------- Interface ----------
 const rt = { mode: "ab", a: null, b: null, pick: null, net: null, netBox: null, avoid: new Set(), verdict: new Map(),
-  loop: null, via: null, seed: Math.random() * 2 * Math.PI, trace: null, markers: L.layerGroup().addTo(map),
+  loop: null, via: null, seed: Math.random() * 2 * Math.PI, trace: null, props: [], propN: 1, markers: L.layerGroup().addTo(map),
   scan: null, scanLayer: L.layerGroup().addTo(map) };
 
 function rtDraw() {
@@ -775,9 +778,9 @@ function rtDraw() {
   $("rt-loop-opts").hidden = !loop;
   document.querySelectorAll("#rt-mode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === rt.mode));
   $("rt-go").disabled = rt.busy || !(rt.a && (loop || rt.b));
-  $("rt-again").disabled = $("rt-avoid").disabled = rt.busy;
+  $("rt-again").disabled = $("rt-more").disabled = $("rt-avoid").disabled = rt.busy;
   $("rt-go").textContent = loop ? "Calculer la boucle" : "Calculer l'itinéraire";
-  $("rt-again").hidden = !(rt.trace && traces.includes(rt.trace));
+  $("rt-again").hidden = $("rt-more").hidden = !(rt.trace && traces.includes(rt.trace));
   $("rt-avoid").hidden = !(rt.trace && traces.includes(rt.trace));
 }
 
@@ -794,7 +797,7 @@ map.on("click", (e) => {
   if (!rt.pick) return rt.scan && !picking && cpPopup(e);
   rt[rt.pick] = [e.latlng.lng, e.latlng.lat];
   // nouvelle emprise pour un itinéraire : le réseau sera rechargé (la carte des chemins garde le sien s'il la couvre)
-  if (rt.pick !== "c") { rt.net = null; rt.avoid.clear(); rt.loop = rt.via = null; }
+  if (rt.pick !== "c") { rt.net = null; rt.avoid.clear(); rt.loop = rt.via = null; rt.props = []; rt.propN = 1; }
   rt.pick = null;
   $("map").classList.remove("picking");
   hint("");
@@ -827,7 +830,7 @@ function boxAround(pts, pad) {
     Math.max(...pts.map((p) => p[0])) + dLon, Math.max(...pts.map((p) => p[1])) + dLat];
 }
 
-async function rtRun(round = 0) {
+async function rtRun(round = 0, keep = false) {
   const { a, b } = rt, loop = rt.mode === "loop", pref = +$("rt-pref").value;
   let chained = false; // un contournement prend le relais : les boutons restent bloqués
   rt.busy = true;
@@ -879,12 +882,16 @@ async function rtRun(round = 0) {
       if (fails >= 2 || (!n && !failed)) break;
     }
     status(round ? `Contournement des points d'attention (${round}/${RT_AUTO_ROUNDS})…` : "");
-    if (rt.trace && traces.includes(rt.trace)) removeTrace(rt.trace);
-    const name = `${loop ? `Boucle ${$("rt-km").value} km` : "Itineraire"} ${new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }).replace(":", "h")}`;
+    // « Autre proposition » garde la précédente à l'écran, en gris, pour comparer
+    if (!keep && rt.trace && traces.includes(rt.trace)) removeTrace(rt.trace);
+    const name = `${loop ? `Boucle ${$("rt-km").value} km` : "Itineraire"} ${new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }).replace(":", "h")}` +
+      (rt.propN > 1 ? ` (proposition ${rt.propN})` : "");
     await analyseFiles([new File([toGpx(name, [path.coords])], `${name}.gpx`)]);
     rt.trace = traces.at(-1);
     rt.trace.route = { edges: path.edges };
     rt.trace.onOsm = rtOsmLearn;
+    // nouvelle proposition : la carte montre toutes les traces pour les comparer
+    if (keep) map.fitBounds(L.latLngBounds(traces.flatMap((t) => t.res.lines.flat().map((p) => [p[1], p[0]]))), { padding: [20, 20] });
     // les points d'attention IGN et cadastre sont connus tout de suite : on les contourne sans attendre
     if (rt.trace.res.alerts.length && round < RT_AUTO_ROUNDS && (chained = rtAvoid(round + 1))) return;
     status("");
@@ -1076,6 +1083,8 @@ function rtOsmLearn(feats) {
 // Écarte les tronçons où l'analyse a trouvé un point d'attention (parcelle privée, interdiction OSM…) et recalcule
 // Renvoie true si un nouveau calcul a été lancé.
 function rtAvoid(round = 0) {
+  // proposition affichée (on peut avoir cliqué sur une autre) : c'est elle qu'on corrige
+  if (!round && active && active.route) rt.trace = active;
   const t = rt.trace;
   if (!t || !t.route) return false;
   const pts = t.res.alerts.flatMap((al) => al.latlngs.map(([la, lo]) => [lo, la]));
@@ -1097,18 +1106,27 @@ $("rt-a").addEventListener("click", () => rtPick("a"));
 $("rt-b").addEventListener("click", () => rtPick("b"));
 // la sélection d'une section annule le placement de A ou B
 $("sec-pick").addEventListener("click", () => { if (rt.pick) { rt.pick = null; rtDraw(); } });
-$("rt-go").addEventListener("click", () => { rt.avoid.clear(); rt.loop = rt.via = null; rtRun(); });
+$("rt-go").addEventListener("click", () => { rt.avoid.clear(); rt.loop = rt.via = null; rt.props = []; rt.propN = 1; rtRun(); });
 // autre boucle : on tourne le cercle autour du départ
 // nouvelle trace, mêmes réglages : d'autres orientations de boucle, ou un détour au hasard entre A et B
-$("rt-again").addEventListener("click", () => {
+function rtNext(keep) {
+  // la proposition affichée (et les précédentes) sont écartées du choix : le générateur cherche ailleurs
+  const cur = active && active.route ? active : rt.trace;
+  if (cur && cur.route) rt.props.push(new Set(cur.route.edges));
   rt.avoid.clear(); rt.loop = null;
   rt.seed += Math.PI / RT_CANDIDATES + Math.random() * 2 * Math.PI;
   if (rt.a && rt.b) {
     const bearing = Math.atan2((rt.b[0] - rt.a[0]) * Math.cos(rt.a[1] * rad), rt.b[1] - rt.a[1]);
     rt.via = { bearing, along: 0.3 + Math.random() * 0.4, side: (Math.random() < 0.5 ? -1 : 1) * (0.15 + Math.random() * 0.25) };
   }
-  rtRun();
-});
+  if (keep) rt.propN++;
+  else if (cur) rt.trace = cur; // « Nouvelle trace » remplace celle qu'on regarde
+  rtRun(0, keep);
+}
+// nouvelle trace, mêmes réglages : remplace la trace affichée par une autre
+$("rt-again").addEventListener("click", () => rtNext(false));
+// autre proposition : en ajoute une, différente, et garde les précédentes en gris pour comparer
+$("rt-more").addEventListener("click", () => rtNext(true));
 document.querySelectorAll("#rt-mode button").forEach((b) => b.addEventListener("click", () => { rt.mode = b.dataset.mode; rt.loop = rt.via = null; rtDraw(); }));
 $("rt-strict").addEventListener("change", () => {
   rt.verdict.clear();
