@@ -9,6 +9,10 @@ const RT_DETOUR = 1.3;       // rapport longueur réelle / longueur du cercle (l
 const RT_CANDIDATES = 96;    // boucles essayées (orientations et nombres de points différents), on garde la meilleure
 const RT_PRECHECK = 2.6;     // avant une boucle, cadastre vérifié jusqu'à 2,6 fois le rayon du cercle autour de A : sans ça,
 const RT_PRECHECK_MAX = 30000; // le générateur fuit les chemins pas encore vérifiés (une sur deux est privée) et prend la route
+// au-delà (boucles de plus de 90 km environ), tout le disque serait trop long à vérifier (17 000 km de chemins pour
+// 150 km près d'Orléans) : cadastre vérifié près de A, puis seulement le long des meilleures boucles possibles
+// (et moitié moins de boucles essayées : sur un réseau de 500 000 tronçons, chaque essai coûte cher)
+const RT_PRECHECK_NEAR = 12000, RT_CORRIDOR = 600, RT_CORRIDOR_TOP = 4, RT_CORRIDOR_ROUNDS = 1;
 const RT_LEG = 10000;        // m de boucle par secteur de chemins visé (au moins 4) : plus la boucle est longue, plus elle zigzague
 const RT_MAX_ROAD = 0.4;     // part de route au-delà de laquelle une boucle est nettement pénalisée
 const RT_SECTOR_MIN = 1500;  // m : longueur minimale d'un secteur de chemins visé par une boucle
@@ -229,28 +233,34 @@ function nearestNode(g, p, avoid, mask) {
 // A* : renvoie la liste des coordonnées [lon, lat], les tronçons empruntés et le coût, ou null
 // (aussi quand le coût dépasserait maxCost : la recherche s'arrête sans parcourir tout le réseau)
 function shortestPath(g, from, to, pref, avoid, used = new Set(), maxCost = Infinity) {
-  const n = g.xy.length, cost = new Float64Array(n).fill(Infinity), prev = new Array(n);
+  // tableaux du graphe réutilisés d'une recherche à l'autre (des milliers par boucle) : un numéro de passage
+  // dit si une case a été écrite par cette recherche, sans tout remettre à zéro
+  const n = g.xy.length;
+  if (!g.sp || g.sp.cost.length !== n) g.sp = { cost: new Float64Array(n), prev: new Array(n), mark: new Uint32Array(n), gen: 0 };
+  const sp = g.sp, gen = ++sp.gen, mark = sp.mark, prev = sp.prev, cst = sp.cost;
   // admissible : aucun tronçon ne coûte moins de 1 par mètre (moins le gain du curseur « Tracé »)
   const goal = g.xy[to], hk = 1 - RT_TECH_GAIN * (rt.tech || 0), h = (i) => hk * dist(g.xy[i], goal);
   const heap = new Heap();
-  cost[from] = 0; heap.push(h(from), from);
+  mark[from] = gen; cst[from] = 0; heap.push(h(from), from);
   while (heap.size && heap.k[0] <= maxCost) {
     const u = heap.pop();
     if (u === to) break;
+    const cu = cst[u];
     for (const s of g.adj[u]) {
       if (s.e.ban || avoid.has(s.e)) continue;
-      const c = cost[u] + s.e.len * (rtFactor(s.e.f.properties, pref) * rtDoubt(s.e) * rtTech(s.e) + (used.has(s.e) ? RT_REUSE : 0));
-      if (c < cost[s.to]) { cost[s.to] = c; prev[s.to] = s; heap.push(c + h(s.to), s.to); }
+      const c = cu + s.e.len * (rtFactor(s.e.f.properties, pref) * rtDoubt(s.e) * rtTech(s.e) + (used.has(s.e) ? RT_REUSE : 0));
+      if (mark[s.to] !== gen || c < cst[s.to]) { mark[s.to] = gen; cst[s.to] = c; prev[s.to] = s; heap.push(c + h(s.to), s.to); }
     }
   }
-  if (cost[to] === Infinity || cost[to] > maxCost) return null;
+  const total = mark[to] === gen ? cst[to] : Infinity;
+  if (total === Infinity || total > maxCost) return null;
   const steps = [];
   for (let v = to; v !== from; v = steps.at(-1).from) { const s = prev[v]; steps.push({ ...s, from: s.fwd ? s.e.a : s.e.b }); }
   steps.reverse();
   const coords = [g.xy[from]];
   const segs = steps.map((s) => (s.fwd ? s.e.coords : [...s.e.coords].reverse()));
   for (const c of segs) coords.push(...c.slice(1).map((p) => [p[0], p[1]]));
-  return { coords, edges: steps.map((s) => s.e), segs, cost: cost[to] };
+  return { coords, edges: steps.map((s) => s.e), segs, cost: total };
 }
 
 // extra : autres traces du fichier, { nom: lignes } (les vides sont omises)
@@ -743,14 +753,27 @@ async function planLoop(g, a, target, pref, seed, prev, progress = () => {}) {
     - RT_DIVERSE * seen(l.path) - 2 * Math.abs(l.path.len / target - 1) - 8 * Math.max(0, Math.abs(l.path.len / target - 1) - 0.1) - 10 * l.path.dup / l.path.len - (l.path.dup >= RT_DUP_MAX ? 1 : 0);
   // la boucle réparée est gardée tant qu'elle reste à 10 % de la distance visée, sans aller-retour
   const fixed = prev && loopCandidate(g, start, a, sectors, cross, target, pref, prev.theta, prev.n, prev.scale, score);
-  if (fixed && Math.abs(fixed.path.len / target - 1) <= 0.1 && fixed.path.dup < RT_DUP_MAX) return fixed;
+  // (ou sans plus de bouts repris que la boucle d'origine : sinon chaque vérification relancerait toute la recherche)
+  if (fixed && Math.abs(fixed.path.len / target - 1) <= 0.1 && fixed.path.dup < Math.max(RT_DUP_MAX, prev.path.dup + 1)) return fixed;
   const n = Math.max(4, Math.round(target / RT_LEG));
   let best = fixed || null;
-  for (let i = 0; i < RT_CANDIDATES; i++) {
+  const all = [];
+  const nc = rt.long ? RT_CANDIDATES / 2 : RT_CANDIDATES;
+  for (let i = 0; i < nc; i++) {
     // le calcul est long : la page reste réactive et la barre avance
-    if (i % 4 === 0) { progress(i / RT_CANDIDATES); await new Promise((r) => setTimeout(r)); }
-    const l = loopCandidate(g, start, a, sectors, cross, target, pref, seed + (2 * Math.PI * i) / RT_CANDIDATES, Math.max(3, n - 3 + (i % 5)), 1, score);
+    if (i % 4 === 0) { progress(i / nc); await new Promise((r) => setTimeout(r)); }
+    const l = loopCandidate(g, start, a, sectors, cross, target, pref, seed + (2 * Math.PI * i) / nc, Math.max(3, n - 3 + (i % 5)), 1, score);
     if (l && (!best || l.score > best.score)) best = l;
+    if (l) all.push(l);
+  }
+  // meilleures boucles assez différentes (moins de 60 % en commun) : on vérifiera le cadastre le long d'elles
+  if (best) {
+    best.alts = [];
+    for (const l of all.sort((x, y) => y.score - x.score)) {
+      if (best.alts.length >= RT_CORRIDOR_TOP) break;
+      const set = new Set(l.path.edges);
+      if (best.alts.every((o) => o.path.edges.reduce((x, e) => x + (set.has(e) ? e.len : 0), 0) < 0.6 * o.path.len)) best.alts.push(l);
+    }
   }
   return best;
 }
@@ -845,7 +868,19 @@ async function rtRun(round = 0, keep = false) {
       // le cercle peut grandir jusqu'à 1,6 fois son rayon de départ lors du calibrage
       g = await ensureNet(boxAround([a], (RT_MAX_SCALE * 2 * target) / (2 * Math.PI * RT_DETOUR) + 2000));
       // tout le cadastre du secteur d'abord : la boucle se choisit sur des chemins déjà vérifiés
-      if (pref) await checkArea(g, a, Math.min(RT_PRECHECK_MAX, (RT_PRECHECK * target) / (2 * Math.PI * RT_DETOUR)), "Vérification du cadastre autour de A");
+      const pr = (RT_PRECHECK * target) / (2 * Math.PI * RT_DETOUR);
+      rt.long = pr > RT_PRECHECK_MAX;
+      if (pref && pr <= RT_PRECHECK_MAX) await checkArea(g, a, pr, "Vérification du cadastre autour de A");
+      else if (pref) {
+        await checkArea(g, a, RT_PRECHECK_NEAR, "Vérification du cadastre près de A");
+        for (let c = 1; c <= RT_CORRIDOR_ROUNDS; c++) {
+          const l = await planLoop(g, a, target, pref, rt.seed, null, (f) => status("Repérage des boucles possibles…", f));
+          if (!l) break;
+          const zone = corridorEdges(g, l.alts.map((x) => x.path), RT_CORRIDOR);
+          if (!zone.length) break;
+          await checkList(zone, a, "Vérification du cadastre le long des boucles possibles");
+        }
+      }
       compute = async (k) => {
         // secteur déjà vérifié : la boucle choisie au premier tour est réparée, pas remplacée
         rt.loop = await planLoop(g, a, target, pref, rt.seed, round || k > (pref ? 1 : RT_EXPLORE) ? rt.loop : null,
@@ -914,7 +949,18 @@ const scanRenderer = L.canvas({ padding: 0.3 }); // des dizaines de milliers de 
 // depuis a ; dans un anneau, serpentin par cellules d'environ 500 m pour que chaque lot de requête couvre un
 // petit secteur. after(distance atteinte) après chaque lot ; stop() arrête entre deux lots.
 async function checkArea(g, a, r, label, after = () => {}, stop = () => false) {
-  const list = g.edges.filter((e) => isDirt(e) && !e.ban && !e.checked && dist(e.mid, a) <= r);
+  return checkList(g.edges.filter((e) => isDirt(e) && !e.ban && !e.checked && dist(e.mid, a) <= r), a, label, after, stop);
+}
+
+// Chemins pas encore vérifiés à moins de w mètres des boucles données
+function corridorEdges(g, paths, w) {
+  const grid = new Grid(0.01);
+  for (const p of paths) for (const c of p.coords) grid.add([c[0], c[1], c[0], c[1]], c);
+  return g.edges.filter((e) => isDirt(e) && !e.ban && !e.checked &&
+    [-1, 0, 1].some((dx) => [-1, 0, 1].some((dy) => grid.at(e.mid[0] + dx * 0.01, e.mid[1] + dy * 0.01).some((c) => dist(c, e.mid) <= w))));
+}
+
+async function checkList(list, a, label, after = () => {}, stop = () => false) {
   const ring = (e) => Math.floor(dist(e.mid, a) / 1000);
   const cell = (e) => { const y = Math.floor(e.mid[1] / 0.0045), x = Math.floor(e.mid[0] / 0.006); return y * 1e6 + (y % 2 ? -x : x); };
   list.sort((p, q) => ring(p) - ring(q) || cell(p) - cell(q));
