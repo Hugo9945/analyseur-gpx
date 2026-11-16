@@ -763,7 +763,7 @@ async function planLoop(g, a, target, pref, seed, prev, progress = () => {}) {
   const nc = rt.long ? RT_CANDIDATES / 2 : RT_CANDIDATES;
   for (let i = 0; i < nc; i++) {
     // le calcul est long : la page reste réactive et la barre avance
-    if (i % 4 === 0) { progress(i / nc); await new Promise((r) => setTimeout(r)); }
+    if (i % 4 === 0) { progress(i / nc); await yieldUI(); }
     const l = loopCandidate(g, start, a, sectors, cross, target, pref, seed + (2 * Math.PI * i) / nc, Math.max(3, n - 3 + (i % 5)), 1, score);
     if (l && (!best || l.score > best.score)) best = l;
     if (l) all.push(l);
@@ -841,7 +841,7 @@ async function ensureNet(bbox) {
     fetchStrongZones(bbox).catch((e) => { console.warn("zones", e); return []; }),
   ]);
   status("Construction du graphe…", null);
-  await new Promise((r) => setTimeout(r));
+  await yieldUI();
   rt.avoid.clear(); // les tronçons écartés appartenaient à l'ancien graphe
   rt.net = buildGraph(feats, zones);
   rt.netBox = bbox;
@@ -910,7 +910,7 @@ async function rtRun(round = 0, keep = false) {
     let path, fails = 0;
     for (let k = 1; ; k++) {
       status(`${loop ? "Recherche d'une boucle" : "Recherche d'un itinéraire"} · vérification du cadastre (${k})…`, null);
-      await new Promise((r) => setTimeout(r));
+      await yieldUI();
       path = await compute(k);
       if (k > RT_CHECK_ROUNDS) break;
       // cadastre indisponible deux fois de suite : on passe à l'analyse, qui signalera ce qui reste à éviter

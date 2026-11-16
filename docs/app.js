@@ -1,5 +1,15 @@
 "use strict";
 
+// Rend la main au navigateur pendant les longs calculs. Onglet en arrière-plan : setTimeout y est bridé
+// (1 s, voire 1 min après 5 min dans Chrome), alors on passe par un MessageChannel, qui ne l'est pas.
+const yieldUI = (() => {
+  const ch = new MessageChannel(), q = [];
+  ch.port1.onmessage = () => q.shift()();
+  return () => new Promise((r) => {
+    if (document.hidden) { q.push(r); ch.port2.postMessage(0); } else setTimeout(r);
+  });
+})();
+
 // ---------- Paramètres ----------
 const WFS = "https://data.geopf.fr/wfs/ows";
 const ALTI = "https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest/elevation.json";
@@ -553,7 +563,7 @@ async function analyseTrace(file, progress) {
   if (alti.status === "rejected") notes.push("Altitudes IGN indisponibles : altitudes du fichier GPX utilisées.");
 
   progress("Croisement des données…", null);
-  await new Promise((r) => setTimeout(r));
+  await yieldUI();
   matchNearest(samples, data.roads, { groundPenalty: true }).forEach(([f, q], i) => { samples[i].road = f; samples[i].snap = q; });
   const inParcel = polyIndex(data.parcels), inForest = polyIndex(data.forests);
   const inZones = polyIndex(zones.status === "fulfilled" ? zones.value : [], true);
