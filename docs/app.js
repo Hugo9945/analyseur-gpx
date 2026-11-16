@@ -36,7 +36,8 @@ const FONC = [
   { key: "noncad",      label: "Non cadastré (voirie, domaine public)", color: "--s3" },
   { key: "limite",      label: "En limite de parcelle privée (±8 m)",  color: "--s5" },
   { key: "exploit",     label: "Chemin d'exploitation (ouvert sauf panneau)", color: "--s2" },
-  { key: "ferme",       label: "Terrain public fermé (armée, forêt domaniale…)", color: "--s7" },
+  { key: "domaniale",   label: "Forêt domaniale (ouvert sauf panneau ou barrière)", color: "--s2" },
+  { key: "ferme",       label: "Terrain public fermé (armée, hôpital, voie ferrée…)", color: "--s7" },
   { key: "pmprivee",    label: "Personne morale privée (SCI, GFA…)",   color: "--s4" },
   { key: "particulier", label: "Particulier (probable)",               color: "--s8" },
   { key: "inconnu",     label: "Propriétaire inconnu",                 color: "--neutral" },
@@ -53,7 +54,7 @@ const SLOPES = [
 // interdits hors des voies ouvertes à la circulation publique)
 const REASONS = {
   prive:       "Parcelle privée",
-  ferme:       "Terrain de l'État ou d'un établissement public (armée, forêt domaniale, hôpital, voie ferrée…)",
+  ferme:       "Terrain de l'État ou d'un établissement public (armée, hôpital, voie ferrée…)",
   ayantsdroit: "Accès réservé aux ayants droit (IGN)",
   osm:         "Interdit aux motos d'après OSM",
   sentier:     "Sentier non carrossable (IGN)",
@@ -411,6 +412,9 @@ function parcelCat(f, owners) {
   const o = owners[f.properties.idu];
   if (!o) return "particulier";
   if (o.some((x) => LOCAL_GROUPS.has(x.groupe))) return "public";
+  // forêt domaniale (gérée par l'ONF) : ses routes forestières sont des voies privées de l'État, ouvertes à la
+  // circulation sauf panneau ou barrière (circulaire du 6 septembre 2005), comme un chemin d'exploitation
+  if (o.some((x) => /OFFICE NATIONAL DES FORETS/i.test(x.denomination || ""))) return "domaniale";
   const pub = o.filter((x) => PUBLIC_GROUPS.has(x.groupe));
   if (!pub.length) return "pmprivee";
   return pub.some((x) => PUBLIC_OPEN.test(x.denomination || "")) ? "public" : "ferme";
@@ -1118,7 +1122,7 @@ function render(res) {
 
   renderCats($("bar-fonc"), $("tab-fonc"), FONC, sumBy(samples, (s) => s.fonc), total);
   const foret = sumIf(samples, (s) => s.forest);
-  $("note-foret").textContent = foret ? `${fmtKm(foret)} (${pct(foret, total)}) en forêt publique (ONF) : les routes forestières y sont souvent fermées aux véhicules.` : "Aucun passage en forêt publique.";
+  $("note-foret").textContent = foret ? `${fmtKm(foret)} (${pct(foret, total)}) en forêt publique (ONF) : routes forestières ouvertes sauf panneau ou barrière, que l'ONF pose souvent.` : "Aucun passage en forêt publique.";
 
   // résumés affichés sur les menus fermés
   const top2 = (cats, sums) => [...sums].filter(([, v]) => v).sort((a, b) => b[1] - a[1]).slice(0, 2)

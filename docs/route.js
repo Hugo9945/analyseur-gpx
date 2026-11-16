@@ -22,7 +22,7 @@ const RT_REUSE = 30;         // surcoût par mètre d'un tronçon déjà emprunt
                              // tant qu'un autre passage existe, mais pas non plus de détour de dizaines de km pour l'éviter
 const RT_PRIV_MIN = 20;      // m en parcelle privée à partir desquels un tronçon est écarté
 const RT_EXPL = "chemin d'exploitation"; // tronçon sur la parcelle d'un chemin d'exploitation, écarté sauf case cochée
-const RT_FERME = "terrain public fermé"; // camp militaire, forêt domaniale, hôpital, voie ferrée… (voir parcelCat)
+const RT_FERME = "terrain public fermé"; // camp militaire, hôpital, voie ferrée… (pas les forêts domaniales) (voir parcelCat)
 const RT_CHECK_ROUNDS = 20;  // vérifications du cadastre (puis recalcul) avant l'analyse complète
 const RT_DIVERSE = 1.5;     // « Autre proposition » : pénalité par part de boucle reprise d'une proposition précédente
 const RT_EXPLORE = 8;        // premières vérifications où une boucle peut encore en remplacer une autre ; ensuite on la répare
@@ -570,13 +570,15 @@ async function checkEdges(list, strict, progress = () => {}) {
   for (const e of todo) {
     // why : longueur par catégorie (noncad, public, limite, prive) et parcelle la plus parcourue de la catégorie
     // retenue, pour expliquer le verdict sur la carte des chemins publics
-    const m = { noncad: 0, public: 0, limite: 0, prive: 0, joint: 0, exploit: 0, ferme: 0 }, top = {};
+    const m = { noncad: 0, public: 0, limite: 0, prive: 0, joint: 0, exploit: 0, ferme: 0, dom: 0 }, top = {};
     for (let j = 1; j < e.coords.length; j++) {
       const a = e.coords[j - 1], b = e.coords[j], d = dist(a, b), k = Math.max(1, Math.ceil(d / STEP));
       for (let i = 0; i < k; i++) {
         const t = (i + 0.5) / k, p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], f = inParcel(p);
         let c = f ? parcelCat(f, owners) : "noncad";
-        if ((c === "particulier" || c === "pmprivee") && exploitParcel(f, owners)) c = "exploit";
+        // forêt domaniale : même régime que les chemins d'exploitation (ouvert sauf panneau), même case à cocher
+        if (c === "domaniale") { m.dom += d / k; c = "exploit"; }
+        else if ((c === "particulier" || c === "pmprivee") && exploitParcel(f, owners)) c = "exploit";
         else if (c === "particulier" || c === "pmprivee" || c === "ferme") {
           const near = !strict && boundaryDist(p, f) < EDGE_TOL;
           c = near && gapBeside(p, a, b, inParcel, owners) ? "limite" : c === "ferme" ? "ferme" : "prive";
@@ -1029,7 +1031,7 @@ function rtShowScan(fit) {
   const f = (m) => `${Math.round(m / 1000)} km`, share = km.pub / Math.max(1, km.pub + km.road);
   $("cp-info").innerHTML = (reach < r ? `Vérifié jusqu'à ${(reach / 1000).toFixed(1)} km sur ${r / 1000}${rt.scanning ? " (en cours)" : " (arrêté)"}. ` : "") +
     `À moins de ${(reach / 1000).toFixed(reach < r ? 1 : 0)} km du centre : <b>${f(km.pub)} de chemins publics</b> (en vert) pour ${f(km.road)} de routes, ` +
-    (km.expl > 500 ? `${f(km.expl)} de chemins d'exploitation (en orange) ` : "") +
+    (km.expl > 500 ? `${f(km.expl)} de chemins d'exploitation ou de forêt domaniale (en orange) ` : "") +
     `et ${f(km.priv)} de chemins privés ou interdits (en rouge)` + (km.todo > 500 ? `, ${f(km.todo)} non vérifiés (en gris)` : "") + `. ` +
     (share < 0.25 ? "Secteur pauvre : une boucle par ici passera surtout par la route." : share < 0.35 ? "Secteur moyen." : "Secteur favorable.") +
     " Touche un chemin pour savoir pourquoi.";
@@ -1038,7 +1040,7 @@ function rtShowScan(fit) {
 
 // Explication du verdict d'un chemin de la carte, au toucher (à moins de 12 pixels)
 const RT_BAN_TEXT = {
-  [RT_EXPL]: "chemin d'exploitation non autorisé",
+  [RT_EXPL]: "chemin d'exploitation ou de forêt domaniale non autorisé",
   "voie privée": "voie privée (IGN)",
   "Restreint aux ayants droit": "accès réservé aux ayants droit (IGN)",
   "Physiquement impossible": "impraticable (IGN)",
@@ -1058,11 +1060,16 @@ function cpPopup(ev) {
   const e = best, w = e.why, m = (x) => `${Math.round(x)} m`, owners = w && w.o ? { [w.f.properties.idu]: w.o } : {};
   const head = `<b>${esc(e.f.properties.nature)}</b> ${muted(m(e.len))}<br>`, tag = (t, c) => `<b style="color:${css(c)}">${t}</b>`;
   let body;
-  if (isExpl(e))
+  if (isExpl(e) && w.m.dom > w.m.exploit / 2)
+    body = `${tag("Forêt domaniale", "--s2")} : sur ${m(w.m.dom)}, route ou chemin d'une forêt de l'État gérée par l'ONF. ` +
+      `C'est une voie privée de l'État : ouverte sauf panneau ou barrière (l'ONF ferme beaucoup de ses routes, souvent par une barrière).<br>` +
+      muted(e.ban ? "Le générateur l'évite, sauf si tu coches « Chemins d'exploitation et forêts domaniales »." : "Le générateur peut l'utiliser (case cochée).") +
+      "<br>" + (w.f ? parcelPopup(w.f, owners) : "");
+  else if (isExpl(e))
     body = `${tag("Chemin d'exploitation", "--s2")} : sur ${m(w.m.exploit)}, le chemin a sa propre parcelle privée ` +
       `(propriétaires riverains en indivision, ou bande étroite cadastrée à part). Les propriétaires peuvent en interdire ` +
       `l'accès (Code rural, art. L162-1) : ouvert sauf panneau ou barrière.<br>` +
-      muted(e.ban ? "Le générateur l'évite, sauf si tu coches « Autoriser les chemins d'exploitation »." : "Le générateur peut l'utiliser (case cochée).") +
+      muted(e.ban ? "Le générateur l'évite, sauf si tu coches « Chemins d'exploitation et forêts domaniales »." : "Le générateur peut l'utiliser (case cochée).") +
       "<br>" + (w.f ? parcelPopup(w.f, owners) : "");
   else if (e.ban === "parcelle privée")
     body = `${tag("Privé", "--s8")} : ` + (w.m.joint > w.m.prive / 2
@@ -1070,7 +1077,7 @@ function cpPopup(ev) {
       : `traverse une parcelle privée sur ${m(w.m.prive)}<br>`) + (w.f ? parcelPopup(w.f, owners) : "");
   else if (e.ban === RT_FERME)
     body = `${tag("Fermé", "--s8")} : traverse sur ${m(w.m.ferme)} un terrain de l'État ou d'un établissement public (camp militaire, ` +
-      `forêt domaniale, hôpital, voie ferrée…). Ce n'est pas un chemin rural : il n'est pas ouvert à la circulation publique.<br>` +
+      `hôpital, voie ferrée…). Ce n'est pas un chemin rural : il n'est pas ouvert à la circulation publique.<br>` +
       (w.f ? parcelPopup(w.f, owners) : "");
   else if (e.ban)
     body = `${tag("Interdit", "--s8")} : ` + (e.ban.startsWith("OSM ") ? `interdit dans OpenStreetMap (${esc(e.ban.slice(4))})` : esc(RT_BAN_TEXT[e.ban] || e.ban));
@@ -1204,7 +1211,7 @@ $("cp-gpx").addEventListener("click", () => {
     return out.map((c) => [c[0], c[1]]);
   };
   saveGpx(`Chemins publics ${rt.scan.r / 1000} km`, joinEdges(scanPublic()).map(thin),
-    { "Chemins d'exploitation (ouverts sauf panneau)": joinEdges(scanPublic(true)).map(thin) });
+    { "Chemins d'exploitation et forêts domaniales (ouverts sauf panneau)": joinEdges(scanPublic(true)).map(thin) });
 });
 $("rt-tech").addEventListener("input", (e) => { $("rt-tech-v").textContent = e.target.value >= 0.7 ? "virages et pentes" : e.target.value <= 0.2 ? "roulant" : "un peu des deux"; });
 $("rt-pref").addEventListener("input", (e) => { $("rt-pref-v").textContent = e.target.value >= 0.7 ? "le plus de chemins" : e.target.value <= 0.3 ? "le plus court" : "équilibré"; });
