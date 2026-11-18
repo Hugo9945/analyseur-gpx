@@ -6,14 +6,14 @@
 <title>Analyseur de traces GPX</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,700;1,800&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="style.css?v=7">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Analyse GPX">
-<meta name="theme-color" content="#2a78d6">
+<meta name="theme-color" content="#1b1d20">
 </head>
 <body>
 <main>
@@ -32,7 +32,7 @@
 <aside id="panel" data-tab="an" data-snap="half">
   <div class="grab" id="grab" aria-hidden="true"><span></span></div>
   <header class="brand">
-    <img src="icon.svg" alt="" width="34" height="34">
+    <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 19c2-4 5-1 6-5s4-6 8-9"/><circle cx="5" cy="19" r="1.6"/><path d="M17 3l2 2-2 2"/></svg></span>
     <div class="brand-t"><h1>Analyseur GPX</h1><p>Moto enduro et trail</p></div>
     <a class="btn ghost" href="notice.pdf" target="_blank" rel="noopener">Notice</a>
     <button id="panel-close" class="icon-btn" aria-label="Replier le panneau"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
@@ -133,10 +133,10 @@
       <span id="sec-info"></span>
     </div>
     <div class="tiles">
-      <div class="tile"><span class="k">Distance</span><span class="v" id="t-dist"></span></div>
-      <div class="tile"><span class="k">D+ / D−</span><span class="v" id="t-elev"></span></div>
-      <div class="tile"><span class="k">Pente max</span><span class="v" id="t-slope"></span></div>
-      <div class="tile"><span class="k">Points d'attention</span><span class="v" id="t-alert"></span></div>
+      <div class="tile"><span class="k"><svg viewBox="0 0 24 24"><path d="M4 18c3-6 6 0 9-6s5-6 7-6"/><circle cx="4" cy="18" r="1.5"/><circle cx="20" cy="6" r="1.5"/></svg>Distance</span><span class="v" id="t-dist"></span></div>
+      <div class="tile"><span class="k"><svg viewBox="0 0 24 24"><path d="m3 19 6-9 4 5 3-4 5 8z"/></svg>D+ / D−</span><span class="v" id="t-elev"></span></div>
+      <div class="tile"><span class="k"><svg viewBox="0 0 24 24"><path d="M3 20h18L3 8z"/><path d="M8 20a5 5 0 0 0-1.5-3.6"/></svg>Pente max</span><span class="v" id="t-slope"></span></div>
+      <div class="tile"><span class="k"><svg viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4m0 3v.5"/></svg>Points d'attention</span><span class="v" id="t-alert"></span></div>
     </div>
     <div id="notes"></div>
 
