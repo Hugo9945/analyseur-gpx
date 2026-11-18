@@ -1141,7 +1141,8 @@ function rtAvoid(round = 0) {
   if (!round && active && active.route) rt.trace = active;
   const t = rt.trace;
   if (!t || !t.route) return false;
-  const pts = t.res.alerts.flatMap((al) => al.latlngs.map(([la, lo]) => [lo, la]));
+  // un passage hors réseau (départ garé loin de la route…) ne correspond à aucun tronçon : rien à éviter
+  const pts = t.res.alerts.filter((al) => [...al.reasons.keys()].some((r) => r !== "hors")).flatMap((al) => al.latlngs.map(([la, lo]) => [lo, la]));
   if (!pts.length) return status("Aucun point d'attention à éviter sur cet itinéraire."), false;
   const grid = new Grid(0.001);
   for (const p of pts) grid.add([p[0], p[1], p[0], p[1]], p);

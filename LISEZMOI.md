@@ -2,7 +2,7 @@
 
 Pensé pour la moto enduro et trail. Glisse une ou plusieurs traces `.gpx`, obtiens :
 - l'accès moto : parcelles privées, accès réservés aux ayants droit (BD TOPO), interdictions OpenStreetMap (`motorcycle`, `motor_vehicle`, `access`, sentiers), sentiers non carrossables, zones protégées strictes ;
-- la liste des points d'attention, cliquables sur la carte ;
+- la liste des points d'attention, cliquables sur la carte, dont les passages hors réseau : au moins 50 m d'affilée sans tronçon BD TOPO ni piste ou route OSM à moins de 15 m (single track absent des cartes ou hors-piste, interdits à moto par L362-1 sauf voie ouverte ignorée des cartes) ; le générateur ne cherche pas à les éviter (ils ne correspondent à aucun tronçon) ;
 - le profil d'altitude (RGE ALTI IGN) coloré par type de voie, et la répartition des pentes ;
 - le type de voie (BD TOPO) et le revêtement (OpenStreetMap, sinon déduit de la BD TOPO) ;
 - les zones réglementées traversées (cœurs de parcs nationaux, réserves, arrêtés de biotope, Natura 2000, PNR) ;

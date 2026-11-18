@@ -69,7 +69,11 @@ const REASONS = {
   osm:         "Interdit aux motos d'après OSM",
   sentier:     "Sentier non carrossable (IGN)",
   zone:        "Zone protégée (cœur de parc, réserve, biotope)",
+  hors:        "Hors réseau : aucune voie connue (single track ou hors-piste probable)",
 };
+// m : longueur d'un passage hors de toute voie (IGN, ou piste / route OSM) à partir de laquelle il est signalé ;
+// en deçà, c'est le plus souvent l'imprécision du GPS ou un parking
+const HORS_MIN = 50;
 // Zones réglementées (couches PatriNat de la Géoplateforme)
 const ZONES = [
   { layer: "patrinat_pn:parc_national", type: "Parc national", strong: (p) => p.zone === "Cœur" },
@@ -477,6 +481,20 @@ function motoReasons(s) {
   return r;
 }
 
+// Passages hors réseau : ni tronçon BD TOPO ni piste ou route OSM à moins de ROAD_TOL m, sur au moins HORS_MIN m
+// d'affilée. Un sentier absent de l'IGN (single track) ou du hors-piste : interdit à moto (L362-1) sauf voie
+// ouverte que les cartes ignorent, à vérifier sur place.
+function markOffNetwork(samples) {
+  const off = (s) => s.voie === "hors" && !(s.osm && (ROADS.has(s.osm.properties.highway) || s.osm.properties.highway === "track"));
+  for (let i = 0; i < samples.length;) {
+    if (!off(samples[i])) { i++; continue; }
+    let j = i, len = 0;
+    while (j < samples.length && off(samples[j]) && samples[j].line === samples[i].line) len += samples[j++].len;
+    if (len >= HORS_MIN) for (let k = i; k < j; k++) samples[k].reasons.push("hors");
+    i = j;
+  }
+}
+
 function slopes(samples) {
   // altitude : IGN si disponible, sinon celle du GPX ; légère moyenne glissante pour le dénivelé
   for (const s of samples) s.z = s.ele ?? s.gpxEle;
@@ -616,6 +634,7 @@ function applyOsm(res, feats) {
     s.surf = surfCat(s.osm && s.osm.properties, s.voie);
     s.reasons = motoReasons(s);
   }
+  markOffNetwork(res.samples);
   summarize(res);
 }
 
