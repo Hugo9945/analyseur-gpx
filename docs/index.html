@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Analyseur de traces GPX</title>
+<title>CAP° — chemins autorisés, boucles et roadbook moto</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,700;1,800&family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Analyse GPX">
+<meta name="apple-mobile-web-app-title" content="CAP°">
 <meta name="theme-color" content="#1b1d20">
 </head>
 <body>
@@ -32,8 +32,8 @@
 <aside id="panel" data-tab="an" data-snap="half">
   <div class="grab" id="grab" aria-hidden="true"><span></span></div>
   <header class="brand">
-    <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 19c2-4 5-1 6-5s4-6 8-9"/><circle cx="5" cy="19" r="1.6"/><path d="M17 3l2 2-2 2"/></svg></span>
-    <div class="brand-t"><h1>Analyseur GPX</h1><p>Moto enduro et trail</p></div>
+    <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 4.5 16.5 19 11 16 5.5 19Z" fill="currentColor" stroke="none"/><circle cx="18.5" cy="5.5" r="1.8"/></svg></span>
+    <div class="brand-t"><h1>CAP<span class="deg">°</span></h1><p>Chemins · boucles · roadbook</p></div>
     <a class="btn ghost" href="notice.pdf" target="_blank" rel="noopener">Notice</a>
     <button id="panel-close" class="icon-btn" aria-label="Replier le panneau"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
   </header>
@@ -215,6 +215,6 @@
 <script src="https://unpkg.com/leaflet-polylineoffset@1.1.1/leaflet.polylineoffset.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.1.0/turf.min.js"></script>
 <script src="app.js?v=17"></script>
-<script src="route.js?v=28"></script>
+<script src="route.js?v=29"></script>
 </body>
 </html>

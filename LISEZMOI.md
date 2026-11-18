@@ -1,4 +1,4 @@
-# Analyseur de traces GPX
+# CAP° (analyseur de traces GPX)
 
 Pensé pour la moto enduro et trail. Glisse une ou plusieurs traces `.gpx`, obtiens :
 - l'accès moto : parcelles privées, accès réservés aux ayants droit (BD TOPO), interdictions OpenStreetMap (`motorcycle`, `motor_vehicle`, `access`, sentiers), sentiers non carrossables, zones protégées strictes ;

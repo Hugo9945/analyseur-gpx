@@ -267,7 +267,7 @@ function shortestPath(g, from, to, pref, avoid, used = new Set(), maxCost = Infi
 function toGpx(name, lines, extra = {}) {
   const pt = (p) => `<trkpt lat="${p[1].toFixed(6)}" lon="${p[0].toFixed(6)}"${p[2] != null ? `><ele>${p[2].toFixed(1)}</ele></trkpt>` : "/>"}`;
   const trk = ([n, ls]) => `<trk><name>${esc(n)}</name>${ls.map((l) => `<trkseg>${l.map(pt).join("")}</trkseg>`).join("")}</trk>\n`;
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Analyseur de traces GPX" xmlns="http://www.topografix.com/GPX/1/1">\n` +
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="CAP°" xmlns="http://www.topografix.com/GPX/1/1">\n` +
     [[name, lines], ...Object.entries(extra).filter(([, ls]) => ls.length)].map(trk).join("") + `</gpx>\n`;
 }
 
@@ -420,7 +420,7 @@ function roadbookGpx(name, S, cases) {
   const lines = [];
   for (const s of S) { if (!lines.length || lines.at(-1).line !== s.line) lines.push({ line: s.line, pts: [] }); lines.at(-1).pts.push(s); }
   const pt = (s) => `<trkpt lat="${s.p[1].toFixed(6)}" lon="${s.p[0].toFixed(6)}">${s.z != null ? `<ele>${s.z.toFixed(1)}</ele>` : ""}</trkpt>`;
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Analyseur de traces GPX" xmlns="http://www.topografix.com/GPX/1/1">\n` +
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="CAP°" xmlns="http://www.topografix.com/GPX/1/1">\n` +
     w.join("") + `<trk><name>${esc(name)}</name>${lines.map((l) => `<trkseg>${l.pts.map(pt).join("")}</trkseg>`).join("")}</trk>\n</gpx>\n`;
 }
 
