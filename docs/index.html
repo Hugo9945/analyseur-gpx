@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,700;1,800&family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -110,6 +110,15 @@
       <button id="cp-clear" hidden>Effacer la carte</button>
     </div>
     <p class="note" id="cp-info" hidden></p>
+    <div id="cp-best" hidden>
+      <h3>Où garer le camion ?</h3>
+      <label class="rt-pref">
+        <span>Boucle visée <b id="cp-loop-v">40 km</b></span>
+        <input type="range" id="cp-loop" min="20" max="100" step="5" value="40">
+      </label>
+      <div class="actions"><button id="cp-best-go" class="primary">Trouver les meilleurs départs</button></div>
+      <div id="cp-best-list"></div>
+    </div>
     </div>
     <details class="more"><summary>Comment ça marche</summary>
     <p class="note">Chaque chemin est vérifié au cadastre : environ 1 min pour 10 km de rayon, 5 min pour 30 km. Touche un chemin pour savoir pourquoi il est vert ou rouge. L'export GPX s'importe comme calque dans GPX Studio pour tracer toi-même.</p>
@@ -215,6 +224,6 @@
 <script src="https://unpkg.com/leaflet-polylineoffset@1.1.1/leaflet.polylineoffset.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.1.0/turf.min.js"></script>
 <script src="app.js?v=18"></script>
-<script src="route.js?v=30"></script>
+<script src="route.js?v=31"></script>
 </body>
 </html>

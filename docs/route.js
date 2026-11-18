@@ -794,6 +794,8 @@ function rtDraw() {
   $("cp-go").disabled = (rt.busy && !rt.scanning) || !rt.c;
   $("cp-go").textContent = rt.scanning ? "Arrêter la vérification" : `Afficher les chemins à ${$("cp-km").value} km`;
   $("cp-clear").hidden = !rt.scan || rt.scanning;
+  $("cp-best").hidden = !rt.scan || rt.scanning || rt.scan.reach < rt.scan.r;
+  $("cp-best-go").disabled = rt.busy;
   for (const k of ["a", "b"]) {
     if (rt[k] && (k === "a" || !loop)) L.marker([rt[k][1], rt[k][0]], { icon: L.divIcon({ className: "pin pin-rt", html: k.toUpperCase(), iconSize: [24, 24] }), interactive: false, zIndexOffset: 1000 }).addTo(rt.markers);
     $(`rt-${k}`).textContent = rt.pick === k ? "Touche la carte…" : rt[k] ? `Déplacer ${k.toUpperCase()}` : `Placer ${k.toUpperCase()}`;
@@ -1009,7 +1011,7 @@ function rtShowScan(fit) {
   rt.scanLayer.clearLayers();
   rt.scanGrid = null;
   $("cp-info").hidden = $("cp-gpx").hidden = !rt.scan;
-  if (!rt.scan) return;
+  if (!rt.scan) { rt.best = null; rtShowBest(); return; }
   const grid = (rt.scanGrid = new Grid(0.003)); // pour retrouver le chemin touché sur la carte
   const { a, r, reach } = rt.scan, km = { pub: 0, priv: 0, todo: 0, road: 0, expl: 0 }, lines = { pub: [], priv: [], todo: [], expl: [] };
   for (const e of rt.net.edges) {
@@ -1036,6 +1038,125 @@ function rtShowScan(fit) {
     (share < 0.25 ? "Secteur pauvre : une boucle par ici passera surtout par la route." : share < 0.35 ? "Secteur moyen." : "Secteur favorable.") +
     " Touche un chemin pour savoir pourquoi.";
   if (fit) map.fitBounds(L.latLng(a[1], a[0]).toBounds(2 * r));
+}
+
+// ---------- Meilleurs départs ----------
+// Une fois le cadastre d'une zone vérifié (carte des chemins), où garer le camion pour une boucle de T m ?
+// 1. repérage : sur une grille de RT_BEST_CELL m, le croisement routier de chaque case est noté selon les km de chemins
+//    autorisés à portée d'une boucle (secteurs d'au moins RT_SECTOR_MIN m, les plus proches comptent plus) ;
+// 2. les RT_BEST_TRY meilleurs, à RT_BEST_GAP m au moins les uns des autres, reçoivent une vraie boucle (planLoop) ;
+// 3. les RT_BEST_SHOW boucles les plus riches en chemins sont proposées.
+// Les départs sont pris assez loin du bord de la zone pour que leur boucle y reste (cadastre vérifié).
+const RT_BEST_CELL = 1500, RT_BEST_TRY = 6, RT_BEST_SHOW = 3, RT_BEST_GAP = 3000;
+const rtLoopRadius = (T) => T / (2 * Math.PI * RT_DETOUR);
+// rayon de carte minimal (multiple de 5 km) pour chercher des départs de boucle de T m
+const rtBestNeed = (T) => Math.ceil((1.3 * rtLoopRadius(T) + 3000) / 5000) * 5;
+
+async function rtBestStarts() {
+  const T = +$("cp-loop").value * 1000, { a, r } = rt.scan, g = rt.net, rl = rtLoopRadius(T);
+  const room = r - 1.3 * rl;
+  if (room < 2000) return status(`Pour une boucle de ${T / 1000} km, vérifie d'abord les chemins sur ${rtBestNeed(T)} km de rayon.`, null, true);
+  rt.busy = true; rtDraw();
+  rt.best = null; rtShowBest();
+  try {
+    status("Repérage des départs possibles…", null);
+    await yieldUI();
+    // secteurs de chemins autorisés (morceaux d'un seul tenant), pour ignorer les bouts isolés
+    const par = new Map(), find = (x) => { while (par.get(x) !== x) { par.set(x, par.get(par.get(x))); x = par.get(x); } return x; };
+    const ok = g.edges.filter((e) => isDirt(e) && !e.ban && e.checked);
+    for (const e of ok) { for (const v of [e.a, e.b]) if (!par.has(v)) par.set(v, v); par.set(find(e.a), find(e.b)); }
+    const size = new Map();
+    for (const e of ok) { const k = find(e.a); size.set(k, (size.get(k) || 0) + e.len); }
+    const grid = new Grid(0.01);
+    for (const e of ok) if (size.get(find(e.a)) >= RT_SECTOR_MIN) grid.add([e.mid[0], e.mid[1], e.mid[0], e.mid[1]], e);
+    const reach = 2 * rl, cy = Math.cos(a[1] * rad), dy = 0.01 * 111320, dx = dy * cy;
+    const near = (p) => {
+      let v = 0;
+      const nx = Math.ceil(reach / dx), ny = Math.ceil(reach / dy);
+      for (let i = -nx; i <= nx; i++) for (let j = -ny; j <= ny; j++)
+        for (const e of grid.at(p[0] + i * 0.01, p[1] + j * 0.01)) {
+          const d = dist(e.mid, p);
+          if (d <= reach) v += e.len * (1 - (0.5 * d) / reach);
+        }
+      return v;
+    };
+    // un croisement routier par case de la grille, le plus proche de son centre
+    const cells = new Map(), cs = RT_BEST_CELL / 111320;
+    g.adj.forEach((adj, i) => {
+      const p = g.xy[i];
+      if (dist(p, a) > room) return;
+      const road = adj.filter((s) => !s.e.ban && !isDirt(s.e));
+      if (!road.length || adj.length < 3) return;
+      const k = Math.floor(p[0] / (cs / cy)) + ":" + Math.floor(p[1] / cs);
+      const c = [(Math.floor(p[0] / (cs / cy)) + 0.5) * (cs / cy), (Math.floor(p[1] / cs) + 0.5) * cs], d = dist(p, c);
+      const cur = cells.get(k);
+      if (!cur || d < cur.d) cells.set(k, { i, p, d });
+    });
+    const cand = [...cells.values()].map((c) => ({ ...c, v: near(c.p) })).sort((x, y) => y.v - x.v);
+    const pick = [];
+    for (const c of cand) {
+      if (pick.length >= RT_BEST_TRY) break;
+      if (pick.every((o) => dist(o.p, c.p) >= RT_BEST_GAP)) pick.push(c);
+    }
+    if (!pick.length) throw new Error("aucun croisement routier dans la zone");
+    // une vraie boucle depuis chacun : la part de chemins réelle départage
+    const out = [], saved = { props: rt.props, long: rt.long, tech: rt.tech };
+    rt.props = []; rt.long = false; rt.tech = +$("rt-tech").value;
+    for (let k = 0; k < pick.length; k++) {
+      const c = pick[k];
+      const l = await planLoop(g, c.p, T, 1, rt.seed, null, (f) => status(`Essai d'une boucle de ${T / 1000} km depuis le départ ${k + 1} sur ${pick.length}…`, (k + f) / pick.length));
+      if (l) out.push({ p: c.p, path: l.path, dirt: dirtExpected(l.path) });
+    }
+    Object.assign(rt, saved);
+    out.sort((x, y) => y.dirt - x.dirt);
+    rt.best = { T, list: out.slice(0, RT_BEST_SHOW) };
+    rtShowBest(true);
+    status("");
+  } catch (e) {
+    console.error(e);
+    status(`Recherche impossible : ${e.message}`, null, true);
+  } finally {
+    rt.busy = false; rtDraw();
+  }
+}
+
+const rtBestLayer = L.layerGroup().addTo(map);
+const RT_DIRS = ["nord", "nord-est", "est", "sud-est", "sud", "sud-ouest", "ouest", "nord-ouest"];
+function rtShowBest(fit) {
+  rtBestLayer.clearLayers();
+  const box = $("cp-best-list");
+  box.innerHTML = "";
+  if (!rt.best || !rt.scan) return;
+  const { T, list } = rt.best, a = rt.scan.a;
+  if (!list.length) { box.innerHTML = `<p class="note warn">Aucune boucle trouvée depuis cette zone.</p>`; return; }
+  list.forEach((b, k) => {
+    L.polyline(b.path.coords.map((c) => [c[1], c[0]]), { color: css("--accent"), weight: 3, opacity: 0.85, interactive: false }).addTo(rtBestLayer);
+    L.marker([b.p[1], b.p[0]], { icon: L.divIcon({ className: "pin pin-rt", html: String(k + 1), iconSize: [26, 26] }), zIndexOffset: 1100 })
+      .on("click", () => rtUseStart(b.p, T)).addTo(rtBestLayer);
+    const d = dist(a, b.p), dir = RT_DIRS[Math.round(((Math.atan2((b.p[0] - a[0]) * Math.cos(a[1] * rad), b.p[1] - a[1]) / rad + 360) % 360) / 45) % 8];
+    const row = document.createElement("div");
+    row.className = "best";
+    row.innerHTML = `<span class="best-n">${k + 1}</span><span class="best-t"><b>${Math.round(100 * b.dirt)} % de chemins</b>` +
+      `<small>${(b.path.len / 1000).toFixed(0)} km · ${d < 1000 ? "au centre" : `à ${(d / 1000).toFixed(1).replace(".", ",")} km ${dir === "ouest" ? "à l'" : "au "}${dir} du centre`}</small></span>`;
+    const go = document.createElement("button");
+    go.textContent = "Partir d'ici";
+    go.addEventListener("click", () => rtUseStart(b.p, T));
+    row.append(go);
+    box.append(row);
+  });
+  if (fit) map.fitBounds(L.latLngBounds(list.flatMap((b) => b.path.coords.map((c) => [c[1], c[0]]))), { padding: [30, 30] });
+}
+
+// départ choisi : onglet Itinéraire, boucle depuis ce point, même distance (le réseau chargé est gardé)
+function rtUseStart(p, T) {
+  rt.a = p; rt.loop = rt.via = null; rt.props = []; rt.propN = 1; rt.avoid.clear();
+  setTab("rt");
+  document.querySelector('#rt-mode button[data-mode="loop"]').click();
+  $("rt-km").value = T / 1000; $("rt-km-v").textContent = `${T / 1000} km`;
+  rt.best = null; rtShowBest();
+  rtDraw();
+  hint("Départ placé : lance « Calculer la boucle »");
+  setTimeout(() => hint(""), 3000);
 }
 
 // Explication du verdict d'un chemin de la carte, au toucher (à moins de 12 pixels)
@@ -1204,6 +1325,8 @@ $("cp-pick").addEventListener("click", () => rtPick("c"));
 $("cp-go").addEventListener("click", () => (rt.scanning ? (rt.scanStop = true) : rtScan()));
 $("cp-clear").addEventListener("click", () => { rt.scan = null; rtShowScan(); rtDraw(); });
 $("cp-km").addEventListener("input", (e) => { $("cp-v").textContent = `${e.target.value} km`; rtDraw(); });
+$("cp-loop").addEventListener("input", (e) => { $("cp-loop-v").textContent = `${e.target.value} km`; rtDraw(); });
+$("cp-best-go").addEventListener("click", () => rtBestStarts());
 $("cp-gpx").addEventListener("click", () => {
   // un point tous les 25 m au plus, sans altitude : fichier 2 à 3 fois plus léger pour GPX Studio
   const thin = (l) => {
