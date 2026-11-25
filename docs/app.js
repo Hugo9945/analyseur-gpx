@@ -218,18 +218,24 @@ function chunks(lines) {
 const coords = (c) => c.map((p) => `${p[1].toFixed(6)} ${p[0].toFixed(6)}`).join(",");
 const wkt = (c) => `LINESTRING(${coords(c)})`;
 
+// Pause commune à toutes les requêtes : quand la Géoplateforme répond « trop de requêtes » (429, ou parfois 400
+// sous forte charge), insister en parallèle ne fait que prolonger le refus ; tout le monde attend ensemble.
+let pauseUntil = 0;
 async function getJson(url, opts) {
   for (let attempt = 0; ; attempt++) {
+    while (Date.now() < pauseUntil) await new Promise((ok) => setTimeout(ok, pauseUntil - Date.now()));
     try {
       // une nouvelle tentative contourne le cache du navigateur : l'IGN renvoie parfois une erreur passagère
       // (400, 5xx) qu'il garde en cache, et toutes les tentatives suivantes la reliraient sans rien demander
       const r = await fetch(url, attempt ? { ...opts, cache: "reload" } : opts);
-      if (!r.ok) throw new Error(`${new URL(url).host} ${r.status}`);
+      if (!r.ok) throw Object.assign(new Error(`${new URL(url).host} ${r.status}`), { status: r.status });
       return await r.json();
     } catch (e) {
-      // 429 = quota Géoplateforme dépassé : on patiente et on réessaie
-      if (attempt >= 5) throw e;
-      await new Promise((ok) => setTimeout(ok, 1500 * 2 ** attempt));
+      // on patiente de plus en plus (jusqu'à 30 s) et on réessaie, environ 2 min 30 au total
+      if (attempt >= 8) throw e;
+      const wait = Math.min(30000, 2000 * 2 ** attempt) * (0.75 + Math.random() / 2);
+      if (e.status === 429 || e.status === 400) pauseUntil = Math.max(pauseUntil, Date.now() + wait);
+      await new Promise((ok) => setTimeout(ok, wait));
     }
   }
 }
